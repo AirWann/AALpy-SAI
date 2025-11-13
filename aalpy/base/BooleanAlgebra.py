@@ -1,8 +1,5 @@
 """
 Abstract base classes for Predicates and Boolean Algebras used in Symbolic Automata.
-
-This module provides the foundation for implementing symbolic automata,
-which use predicates over an alphabet instead of concrete symbols.
 """
 
 from abc import ABC, abstractmethod
@@ -11,32 +8,20 @@ from typing import Any, Optional, Set, Tuple
 
 class Predicate(ABC):
     """
-    Abstract base class for predicates used in symbolic automata.
-    
-    A predicate is a function that evaluates to True or False for a given input.
-    Predicates can be combined using boolean operations to form more complex predicates.
+    Abstract base class for predicates used in symbolic automata
     """
 
     @abstractmethod
     def eval(self, element: Any) -> bool:
         """
         Check if the predicate is satisfied by the given element.
-        
-        Args:
-            element: The element to test against the predicate.
-            
-        Returns:
-            True if the predicate is satisfied, False otherwise.
         """
         pass
 
     @abstractmethod
     def negate(self) -> 'Predicate':
         """
-        Return the negation of this predicate.
-        
-        Returns:
-            A new Predicate that represents the negation of this predicate.
+        Return the negation of the predicate.
         """
         pass
 
@@ -58,30 +43,20 @@ class Predicate(ABC):
 
 class BooleanAlgebra(ABC):
     """
-    Abstract base class for Boolean Algebras used in symbolic automata.
-    
-    A Boolean Algebra defines the set of predicates and operations over them,
-    providing means to test equivalence, check satisfiability, and perform
-    set operations on predicates.
+    Abstract base class for Boolean Algebras.
     """
 
     @abstractmethod
     def true(self) -> Predicate:
         """
-        Return the True predicate (always satisfied).
-        
-        Returns:
-            A Predicate that is satisfied by all elements.
+        Return the True predicate (top).
         """
         pass
 
     @abstractmethod
     def false(self) -> Predicate:
         """
-        Return the False predicate (never satisfied).
-        
-        Returns:
-            A Predicate that is satisfied by no elements.
+        Return the False predicate (bottom).
         """
         pass
 
@@ -89,13 +64,6 @@ class BooleanAlgebra(ABC):
     def and_op(self, pred1: Predicate, pred2: Predicate) -> Predicate:
         """
         Return the conjunction (AND) of two predicates.
-        
-        Args:
-            pred1: The first predicate.
-            pred2: The second predicate.
-            
-        Returns:
-            A new Predicate representing (pred1 AND pred2).
         """
         pass
 
@@ -103,13 +71,6 @@ class BooleanAlgebra(ABC):
     def or_op(self, pred1: Predicate, pred2: Predicate) -> Predicate:
         """
         Return the disjunction (OR) of two predicates.
-        
-        Args:
-            pred1: The first predicate.
-            pred2: The second predicate.
-            
-        Returns:
-            A new Predicate representing (pred1 OR pred2).
         """
         pass
 
@@ -117,44 +78,20 @@ class BooleanAlgebra(ABC):
     def is_satisfiable(self, predicate: Predicate) -> bool:
         """
         Check if the predicate is satisfiable.
-        
-        A predicate is satisfiable if there exists at least one element
-        that satisfies it.
-        
-        Args:
-            predicate: The predicate to check.
-            
-        Returns:
-            True if the predicate is satisfiable, False otherwise.
         """
         pass
 
     @abstractmethod
     def is_true(self, predicate: Predicate) -> bool:
         """
-        Check if the predicate is always true.
-        
-        Args:
-            predicate: The predicate to check.
-            
-        Returns:
-            True if the predicate is always true, False otherwise.
+        Check if the predicate is always true (tautology).
         """
         pass
 
     @abstractmethod
     def are_equivalent(self, pred1: Predicate, pred2: Predicate) -> bool:
         """
-        Check if two predicates are logically equivalent.
-        
-        Two predicates are equivalent if they are satisfied by exactly the same elements.
-        
-        Args:
-            pred1: The first predicate.
-            pred2: The second predicate.
-            
-        Returns:
-            True if the predicates are equivalent, False otherwise.
+        Check if two predicates are equivalent.
         """
         pass
 
@@ -162,18 +99,6 @@ class BooleanAlgebra(ABC):
     def get_domain(self, predicate: Predicate) -> Set[Any]:
         """
         Get all elements that satisfy the predicate.
-        
-        This method is optional for some implementations, particularly when
-        the domain is infinite.
-        
-        Args:
-            predicate: The predicate to evaluate.
-            
-        Returns:
-            A set of all elements that satisfy the predicate.
-            
-        Raises:
-            NotImplementedError: If the domain is infinite or enumeration is not supported.
         """
         pass
 
@@ -181,12 +106,6 @@ class BooleanAlgebra(ABC):
     def pick_witness(self, predicate: Predicate) -> Any:
         """
         Pick a witness (an element that satisfies the predicate).
-        
-        Args:
-            predicate: The predicate to find a witness for.
-            
-        Returns:
-            An element that satisfies the predicate, or None if no element exists.
         """
         pass
 
@@ -194,20 +113,12 @@ class BooleanAlgebra(ABC):
     def minimize_predicate(self, predicate: Predicate) -> Predicate:
         """
         Minimize or simplify the predicate.
-        
-        This method may perform simplifications such as removing redundant clauses.
-        
-        Args:
-            predicate: The predicate to minimize.
-            
-        Returns:
-            A simplified predicate equivalent to the input.
         """
         pass
 
 class IntervalPredicate(Predicate):
     """
-    A predicate representing an interval of numeric values.
+    A predicate representing an interval of integer values between lower and upper.
 
     None for lower or upper bounds indicates +/- infinity.
     """
@@ -243,26 +154,30 @@ class IntervalPredicate(Predicate):
         return hash((self.lower, self.upper))
 
 
-class UnionPredicate(Predicate):
+class OrPredicate(Predicate):
     pass
+
+class AndPredicate(Predicate):
+    pass
+
 class IntervalAlgebra(BooleanAlgebra):
     def true(self) -> Predicate:
         return IntervalPredicate(None, None)
     
     def false(self) -> Predicate:
-        return IntervalPredicate(1, 0) 
+        return IntervalPredicate(1, 0) # Represents false
     
     def and_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'IntervalPredicate':
-        new_lower = max(predicate.lower, other.lower) if predicate.lower is not None and other.lower is not None else predicate.lower or other.lower
-        new_upper = min(predicate.upper, other.upper) if predicate.upper is not None and other.upper is not None else predicate.upper or other.upper
+        new_lower = max(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else (predicate.lower or other.lower)
+        new_upper = min(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else (predicate.upper or other.upper)
         if new_lower is not None and new_upper is not None and new_lower > new_upper:
             return IntervalPredicate(1, 0)  # Represents false
         return IntervalPredicate(new_lower, new_upper)
     
     def or_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'IntervalPredicate':
-        new_lower = min(predicate.lower, other.lower) if predicate.lower is not None and other.lower is not None else None
-        new_upper = max(predicate.upper, other.upper) if predicate.upper is not None and other.upper is not None else None
-        return IntervalPredicate(new_lower, new_upper)
+        # new_lower = min(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else None
+        # new_upper = max(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else None
+        # return IntervalPredicate(new_lower, new_upper)
     
     def is_satisfiable(self, predicate: 'IntervalPredicate') -> bool:
         if predicate.lower is not None and predicate.upper is not None:
