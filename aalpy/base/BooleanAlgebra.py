@@ -116,9 +116,51 @@ class BooleanAlgebra(ABC):
         """
         pass
 
+
+
+class OrPredicate(Predicate):
+    def __init__(self,predlist: set[Predicate]):
+        self.predlist = predlist
+    def eval(self, element: Any) -> bool:
+        flag = False
+        for pred in self.predlist:
+            flag = flag or pred.eval(element)
+        return flag
+    def negate(self) -> 'Predicate':
+        negated_preds = {pred.negate() for pred in self.predlist}
+        return AndPredicate(negated_preds)
+    def __repr__(self) -> str:
+        return " OR ".join([str(pred) for pred in self.predlist])
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, OrPredicate):
+            return False
+        return self.predlist == other.predlist
+    def __hash__(self) -> int:
+        return hash(frozenset(self.predlist))
+    
+class AndPredicate(Predicate):
+    def __init__(self,predlist: set[Predicate]):
+        self.predlist = predlist
+    def eval(self, element: Any) -> bool:
+        flag = True
+        for pred in self.predlist:
+            flag = flag and pred.eval(element)
+        return flag
+    def negate(self) -> 'Predicate':
+        negated_preds = {pred.negate() for pred in self.predlist}
+        return OrPredicate(negated_preds)
+    def __repr__(self) -> str:
+        return " AND ".join([str(pred) for pred in self.predlist])
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, AndPredicate):
+            return False
+        return self.predlist == other.predlist
+    def __hash__(self) -> int:
+        return hash(frozenset(self.predlist))
+    
 class IntervalPredicate(Predicate):
     """
-    A predicate representing an interval of integer values between lower and upper.
+    A predicate representing an interval of integer values between lower (inclusive) and upper (exclusive).
 
     None for lower or upper bounds indicates +/- infinity.
     """
@@ -138,12 +180,12 @@ class IntervalPredicate(Predicate):
         elif self.upper is None:
             return IntervalPredicate(None, self.lower)
         else:
-            return IntervalPredicate(None, self.lower).or_op(IntervalPredicate(self.upper, None))
+            return OrPredicate({IntervalPredicate(None, self.lower), IntervalPredicate(self.upper, None)})
         
     
 
     def __repr__(self) -> str:
-        return f"[{self.lower}, {self.upper}]"
+        return f"[{self.lower}, {self.upper}["
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, IntervalPredicate):
@@ -154,12 +196,6 @@ class IntervalPredicate(Predicate):
         return hash((self.lower, self.upper))
 
 
-class OrPredicate(Predicate):
-    pass
-
-class AndPredicate(Predicate):
-    pass
-
 class IntervalAlgebra(BooleanAlgebra):
     def true(self) -> Predicate:
         return IntervalPredicate(None, None)
@@ -167,17 +203,16 @@ class IntervalAlgebra(BooleanAlgebra):
     def false(self) -> Predicate:
         return IntervalPredicate(1, 0) # Represents false
     
-    def and_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'IntervalPredicate':
-        new_lower = max(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else (predicate.lower or other.lower)
-        new_upper = min(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else (predicate.upper or other.upper)
-        if new_lower is not None and new_upper is not None and new_lower > new_upper:
-            return IntervalPredicate(1, 0)  # Represents false
-        return IntervalPredicate(new_lower, new_upper)
-    
-    def or_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'IntervalPredicate':
-        # new_lower = min(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else None
-        # new_upper = max(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else None
+    def and_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'AndPredicate':
+        return AndPredicate({predicate, other})
+        # new_lower = max(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else (predicate.lower or other.lower)
+        # new_upper = min(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else (predicate.upper or other.upper)
+        # if new_lower is not None and new_upper is not None and new_lower > new_upper:
+        #     return IntervalPredicate(1, 0)  # Represents false
         # return IntervalPredicate(new_lower, new_upper)
+    
+    def or_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'OrPredicate':
+        return OrPredicate({predicate, other})
     
     def is_satisfiable(self, predicate: 'IntervalPredicate') -> bool:
         if predicate.lower is not None and predicate.upper is not None:
@@ -201,4 +236,5 @@ class IntervalAlgebra(BooleanAlgebra):
         return predicate.lower if predicate.lower is not None else (predicate.upper if predicate.upper is not None else 0)
     
     def minimize_predicate(self, predicate: 'IntervalPredicate') -> 'IntervalPredicate':
+       #TODO !!!!!! 
         return predicate  # Interval predicates are already minimal
