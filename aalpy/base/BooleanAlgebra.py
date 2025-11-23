@@ -203,7 +203,7 @@ class IntervalAlgebra(BooleanAlgebra):
     def false(self) -> Predicate:
         return IntervalPredicate(1, 0) # Represents false
     
-    def and_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'AndPredicate':
+    def and_op(self, predicate: 'Predicate', other: 'Predicate') -> 'AndPredicate':
         return AndPredicate({predicate, other})
         # new_lower = max(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else (predicate.lower or other.lower)
         # new_upper = min(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else (predicate.upper or other.upper)
@@ -211,16 +211,44 @@ class IntervalAlgebra(BooleanAlgebra):
         #     return IntervalPredicate(1, 0)  # Represents false
         # return IntervalPredicate(new_lower, new_upper)
     
-    def or_op(self, predicate: 'IntervalPredicate', other: 'IntervalPredicate') -> 'OrPredicate':
+    def or_op(self, predicate: 'Predicate', other: 'Predicate') -> 'OrPredicate':
         return OrPredicate({predicate, other})
     
-    def is_satisfiable(self, predicate: 'IntervalPredicate') -> bool:
-        if predicate.lower is not None and predicate.upper is not None:
-            return predicate.lower <= predicate.upper
-        return True
+    def is_satisfiable(self, predicate: 'Predicate') -> bool:
+        if isinstance(predicate, IntervalPredicate):
+            if predicate.lower is not None and predicate.upper is not None:
+                return predicate.lower <= predicate.upper
+            return True
+        if isinstance(predicate, OrPredicate): #check if at least one is satisfiable
+            for pred in predicate.predlist: 
+                if self.is_satisfiable(pred):
+                    return True
+            return False
+        if isinstance(predicate, AndPredicate): #check if all are satisfiable
+            for pred in predicate.predlist: 
+                if not self.is_satisfiable(pred):
+                    return False
+            return True
+        return False #should never happen
     
-    def is_true(self, predicate: 'IntervalPredicate') -> bool:
-        return predicate.lower is None and predicate.upper is None
+    def is_true(self, predicate: 'Predicate') -> bool:
+        if isinstance(predicate, OrPredicate): #check if at least one is true
+            if len(predicate.predlist) == 0:
+                return False 
+            for pred in predicate.predlist:
+                if self.is_true(pred):
+                    return True
+            return False
+        elif isinstance(predicate, AndPredicate): #check if all are true
+            if len(predicate.predlist) == 0:
+                return True 
+            for pred in predicate.predlist:
+                if not self.is_true(pred):
+                    return False
+            return True
+        elif isinstance(predicate, IntervalPredicate):
+            return (predicate.lower is None) and (predicate.upper is None)
+        return False #should never happen
     
     def are_equivalent(self, pred1: 'IntervalPredicate', pred2: 'IntervalPredicate') -> bool:
         return pred1 == pred2
@@ -235,6 +263,6 @@ class IntervalAlgebra(BooleanAlgebra):
             return None
         return predicate.lower if predicate.lower is not None else (predicate.upper if predicate.upper is not None else 0)
     
-    def minimize_predicate(self, predicate: 'IntervalPredicate') -> 'IntervalPredicate':
+    def minimize_predicate(self, predicate: 'Predicate') -> 'Predicate':
        #TODO !!!!!! 
         return predicate  # Interval predicates are already minimal
