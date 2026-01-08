@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict
 from aalpy.base import AutomatonState, DeterministicAutomaton
 from aalpy.base.Automaton import InputType
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
-
+import warnings
 
 class SfaState(AutomatonState):
     """
@@ -55,6 +55,39 @@ class Sfa(DeterministicAutomaton[SfaState]):
                 return self.current_state.is_accepting
         raise KeyError(f"No transition for input {letter} from state {self.current_state.state_id}.")
 
+    def get_shortest_path(self, origin_state: SfaState, target_state: SfaState) -> Tuple | None:
+        if origin_state not in self.states or target_state not in self.states:
+            warnings.warn('Origin or target state not in automaton. Returning None.')
+            return None
+
+        explored = []
+        queue = [[origin_state]]
+
+        if origin_state == target_state:
+            return ()
+
+        while queue:
+            path = queue.pop(0)
+            node = path[-1]
+            if node not in explored:
+                neighbours = [t[1] for t in node.transitions]
+                for neighbour in neighbours:
+                    new_path = list(path)
+                    new_path.append(neighbour)
+                    queue.append(new_path)
+                    # return path if neighbour is goal
+                    if neighbour == target_state:
+                        acc_seq = new_path[:-1]
+                        inputs = []
+                        for ind, state in enumerate(acc_seq):
+                            inputs.append(self.algebra.pick_witness(next(pred for pred, tgt in state.transitions if tgt == new_path[ind + 1])))
+                        return tuple(inputs)
+
+                # mark node as explored
+                explored.append(node)
+
+        return None
+    
     def is_input_complete(self) -> bool:
         # disjunction of all outgoing predicates must be True
         for s in self.states:
@@ -102,7 +135,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
         # initial is the first key by insertion order
         initial_id = next(iter(state_setup))
         sfa = Sfa(states_dict[initial_id], list(states_dict.values()), algebra)
-
+        states =[state for state in states_dict.values()] 
+        for state in states:
+            state.prefix = sfa.get_shortest_path(sfa.initial_state, state)
 
         return sfa
     @staticmethod
@@ -119,7 +154,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
             transitions = [(pred, tgt.state_id) for pred, tgt in s.transitions]
             state_setup[s.state_id] = (s.is_accepting, transitions)
         return state_setup
-
+    
 
 
 """Example SFA"""
@@ -133,3 +168,5 @@ testautomaton = Sfa.from_state_setup(
         1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
     }, algebra=alg)
 print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
+print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
+print( [state.prefix for state in testautomaton.states])

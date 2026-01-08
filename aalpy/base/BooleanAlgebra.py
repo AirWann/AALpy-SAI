@@ -283,7 +283,7 @@ class IntervalAlgebra(BooleanAlgebra):
     def to_bounds(self,ip: IntervalPredicate):
         lo = float("-inf") if ip.lower is None else ip.lower
         hi = float("inf") if ip.upper is None else ip.upper
-        return (lo, hi, ip)
+        return (lo, hi)
     
     def minimize_predicate(self, predicate: 'Predicate') -> 'Predicate':
        #guarantee : this returns a OrPredicate of IntervalPredicates, or a single IntervalPredicate
@@ -302,10 +302,12 @@ class IntervalAlgebra(BooleanAlgebra):
             if not intervals:
                 return self.false()
 
-            bounds = sorted([self.to_bounds(ip) for ip in intervals], key=lambda x: (x[0], x[1]))
+            
+            # sort by lower bounds
+            bounds = sorted([self.to_bounds(ip) for ip in intervals], key=lambda x: x[0])
 
             merged = []
-            for lo, hi, _ in bounds:
+            for lo, hi in bounds:
                 if not merged:
                     merged.append((lo, hi))
                     continue
@@ -335,14 +337,9 @@ class IntervalAlgebra(BooleanAlgebra):
         else:
             raise NotImplementedError("Minimization not implemented for this predicate type.")
         
-
-""" 
-Some basic tests
-
 alg = IntervalAlgebra()
 print(alg.and_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
 print(alg.or_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
 print(alg.is_satisfiable(IntervalPredicate(3,5)))
 print(alg.is_true(IntervalPredicate(None,None)))
 print(alg.minimize_predicate(OrPredicate({OrPredicate({IntervalPredicate(1,2), IntervalPredicate(3,5)}), OrPredicate({IntervalPredicate(0,4), IntervalPredicate(7,8)})})))
-"""
