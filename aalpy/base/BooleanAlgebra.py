@@ -3,7 +3,7 @@ Abstract base classes for Predicates and Boolean Algebras used in Symbolic Autom
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Set, Tuple
+from typing import Any, Generic, Optional, Set, Tuple, TypeVar
 
 
 class Predicate(ABC):
@@ -40,8 +40,8 @@ class Predicate(ABC):
         """Return hash value for use in sets and dictionaries."""
         pass
 
-
-class BooleanAlgebra(ABC):
+Domain = TypeVar('Domain')
+class BooleanAlgebra(ABC, Generic[Domain]):
     """
     Abstract base class for Boolean Algebras.
     """
@@ -96,14 +96,14 @@ class BooleanAlgebra(ABC):
         pass
 
     @abstractmethod
-    def get_domain(self, predicate: Predicate) -> Set[Any]:
+    def get_domain(self, predicate: Predicate) -> Set[Domain]:
         """
         Get all elements that satisfy the predicate.
         """
         pass
 
     @abstractmethod
-    def pick_witness(self, predicate: Predicate) -> Any:
+    def pick_witness(self, predicate: Predicate) -> Domain:
         """
         Pick a witness (an element that satisfies the predicate).
         """
@@ -130,7 +130,7 @@ class OrPredicate(Predicate):
         negated_preds = {pred.negate() for pred in self.predlist}
         return AndPredicate(negated_preds)
     def __repr__(self) -> str:
-        return " OR ".join([str(pred) for pred in self.predlist])
+        return " OR ".join(["(" + str(pred) + ")" for pred in self.predlist])
     def __eq__(self, other) -> bool:
         if not isinstance(other, OrPredicate):
             return False
@@ -150,7 +150,7 @@ class AndPredicate(Predicate):
         negated_preds = {pred.negate() for pred in self.predlist}
         return OrPredicate(negated_preds)
     def __repr__(self) -> str:
-        return " AND ".join([str(pred) for pred in self.predlist])
+        return " AND ".join(["(" + str(pred) + ")" for pred in self.predlist])
     def __eq__(self, other) -> bool:
         if not isinstance(other, AndPredicate):
             return False
@@ -169,8 +169,10 @@ class IntervalPredicate(Predicate):
         self.lower = lower
         self.upper = upper
     
-    def eval(self, element: Any) -> bool:
-        return self.lower <= element < self.upper
+    def eval(self, element: int) -> bool:
+        lower_ok = True if self.lower is None else element >= self.lower
+        upper_ok = True if self.upper is None else element < self.upper
+        return lower_ok and upper_ok
 
     def negate(self) -> 'Predicate':
         if self.lower is None and self.upper is None:
@@ -196,7 +198,7 @@ class IntervalPredicate(Predicate):
         return hash((self.lower, self.upper))
 
 
-class IntervalAlgebra(BooleanAlgebra):
+class IntervalAlgebra(BooleanAlgebra[int]):
     def true(self) -> Predicate:
         return IntervalPredicate(None, None)
     
@@ -205,9 +207,18 @@ class IntervalAlgebra(BooleanAlgebra):
     
     def and_op(self, predicate: 'Predicate', other: 'Predicate') -> 'Predicate':
         if isinstance(predicate, IntervalPredicate) and isinstance(other, IntervalPredicate):
-            new_lower = max(predicate.lower, other.lower) if (predicate.lower is not None and other.lower is not None) else (predicate.lower or other.lower)
-            new_upper = min(predicate.upper, other.upper) if (predicate.upper is not None and other.upper is not None) else (predicate.upper or other.upper)
-            if new_lower is not None and new_upper is not None and new_lower > new_upper:
+            def max_lower(a: Optional[int], b: Optional[int]) -> Optional[int]:
+                if a is None: return b
+                if b is None: return a
+                return max(a, b)
+            def min_upper(a: Optional[int], b: Optional[int]) -> Optional[int]:
+                if a is None: return b
+                if b is None: return a
+                return min(a, b)
+
+            new_lower = max_lower(predicate.lower, other.lower)
+            new_upper = min_upper(predicate.upper, other.upper)
+            if new_lower is not None and new_upper is not None and new_lower >= new_upper:
                 return IntervalPredicate(1, 0)  # Represents false
             return IntervalPredicate(new_lower, new_upper)
         return AndPredicate({predicate, other})
@@ -218,7 +229,7 @@ class IntervalAlgebra(BooleanAlgebra):
     def is_satisfiable(self, predicate: 'Predicate') -> bool:
         if isinstance(predicate, IntervalPredicate):
             if predicate.lower is not None and predicate.upper is not None:
-                return predicate.lower <= predicate.upper
+                return predicate.lower < predicate.upper
             return True
         if isinstance(predicate, OrPredicate): #check if at least one is satisfiable
             for pred in predicate.predlist: 
@@ -254,11 +265,11 @@ class IntervalAlgebra(BooleanAlgebra):
     def are_equivalent(self, pred1: 'Predicate', pred2: 'Predicate') -> bool:
         return self.minimize_predicate(pred1) == self.minimize_predicate(pred2)
     
-    def get_domain(self, predicate: 'Predicate') -> Set[Any]:
+    def get_domain(self, predicate: 'Predicate') -> Set[int]:
         if isinstance(predicate, IntervalPredicate):
             if predicate.lower is None or predicate.upper is None:
                 raise NotImplementedError("Domain is infinite.")
-            return set(range(predicate.lower, predicate.upper + 1))
+            return set(range(predicate.lower, predicate.upper))
         elif isinstance(predicate, OrPredicate):
             domain = set()
             for pred in predicate.predlist:
@@ -274,10 +285,10 @@ class IntervalAlgebra(BooleanAlgebra):
                     domain = domain.intersection(pred_domain)
             return domain if domain is not None else set()
     
-    def pick_witness(self, predicate: 'IntervalPredicate') -> Any:
+    def pick_witness(self, predicate: 'IntervalPredicate') -> Optional[int]:
         if not self.is_satisfiable(predicate):
             return None
-        return predicate.lower if predicate.lower is not None else (predicate.upper if predicate.upper is not None else 0)
+        return predicate.lower if predicate.lower is not None else ((predicate.upper - 1) if predicate.upper is not None else 0)
     
     # convert bounds to numeric for sorting/merging (-inf/inf for None)
     def to_bounds(self,ip: IntervalPredicate):
@@ -294,10 +305,10 @@ class IntervalAlgebra(BooleanAlgebra):
             intervals = []
             for pred in predicate.predlist:
                 minimized = self.minimize_predicate(pred)
-                if isinstance(minimized, IntervalPredicate):
+                if isinstance(minimized, IntervalPredicate) and self.is_satisfiable(minimized):
                     intervals.append(minimized)
                 elif isinstance(minimized, OrPredicate):
-                    intervals.extend(minimized.predlist)
+                    intervals.extend(ip for ip in minimized.predlist if self.is_satisfiable(ip))
 
             if not intervals:
                 return self.false()
