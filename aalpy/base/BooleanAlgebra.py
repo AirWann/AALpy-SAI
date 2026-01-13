@@ -199,25 +199,28 @@ class IntervalPredicate(Predicate):
 
 
 class IntervalAlgebra(BooleanAlgebra[int]):
+    #two helper functions for bounds management  
+    @staticmethod 
+    def max_lower(a: Optional[int], b: Optional[int]) -> Optional[int]:
+                if a is None: return b
+                if b is None: return a
+                return max(a, b)
+    @staticmethod
+    def min_upper(a: Optional[int], b: Optional[int]) -> Optional[int]:
+                if a is None: return b
+                if b is None: return a
+                return min(a, b)
+    
+
     def true(self) -> Predicate:
         return IntervalPredicate(None, None)
     
     def false(self) -> Predicate:
         return IntervalPredicate(1, 0) # Represents false
-    
     def and_op(self, predicate: 'Predicate', other: 'Predicate') -> 'Predicate':
         if isinstance(predicate, IntervalPredicate) and isinstance(other, IntervalPredicate):
-            def max_lower(a: Optional[int], b: Optional[int]) -> Optional[int]:
-                if a is None: return b
-                if b is None: return a
-                return max(a, b)
-            def min_upper(a: Optional[int], b: Optional[int]) -> Optional[int]:
-                if a is None: return b
-                if b is None: return a
-                return min(a, b)
-
-            new_lower = max_lower(predicate.lower, other.lower)
-            new_upper = min_upper(predicate.upper, other.upper)
+            new_lower = IntervalAlgebra.max_lower(predicate.lower, other.lower)
+            new_upper = IntervalAlgebra.min_upper(predicate.upper, other.upper)
             if new_lower is not None and new_upper is not None and new_lower >= new_upper:
                 return IntervalPredicate(1, 0)  # Represents false
             return IntervalPredicate(new_lower, new_upper)
@@ -276,10 +279,10 @@ class IntervalAlgebra(BooleanAlgebra[int]):
                 domain.update(self.get_domain(pred))
             return domain
         elif isinstance(predicate, AndPredicate):
-            domain = None
+            domain = set()
             for pred in predicate.predlist:
                 pred_domain = self.get_domain(pred)
-                if domain is None:
+                if len(domain) == 0:
                     domain = pred_domain
                 else:
                     domain = domain.intersection(pred_domain)
@@ -342,9 +345,29 @@ class IntervalAlgebra(BooleanAlgebra[int]):
                 return next(iter(result_intervals))
             return OrPredicate(result_intervals)
         elif isinstance(predicate, AndPredicate):
-            #TODO
-            minimized_preds = {self.minimize_predicate(pred) for pred in predicate.predlist}
-            return AndPredicate(minimized_preds)
+            minimized_preds = [self.minimize_predicate(pred) for pred in predicate.predlist]
+            acc = minimized_preds[0] if isinstance(minimized_preds[0], OrPredicate) else OrPredicate({minimized_preds[0]})
+            for pred in minimized_preds[1:]:
+                pred_or = pred if isinstance(pred, OrPredicate) else OrPredicate({pred})
+                # Accumulate by intersecting intervals
+                intersected = set()
+                for interval1 in acc.predlist:
+                    for interval2 in pred_or.predlist:
+                        # Intersect two intervals
+                        intersected_interval = self.and_op(interval1, interval2)
+                        if self.is_satisfiable(intersected_interval):
+                            intersected.add(intersected_interval)
+                
+                if not intersected:
+                    return self.false()
+                acc = OrPredicate(intersected)
+            
+            # if legth = 0, return false ; if length = 1 return the interval ; else return OrPredicate
+            if len(acc.predlist) == 0:
+                return self.false()
+            if len(acc.predlist) == 1:
+                return next(iter(acc.predlist))
+            return acc 
         else:
             raise NotImplementedError("Minimization not implemented for this predicate type.")
         
@@ -353,4 +376,4 @@ print(alg.and_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
 print(alg.or_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
 print(alg.is_satisfiable(IntervalPredicate(3,5)))
 print(alg.is_true(IntervalPredicate(None,None)))
-print(alg.minimize_predicate(OrPredicate({OrPredicate({IntervalPredicate(1,2), IntervalPredicate(3,5)}), OrPredicate({IntervalPredicate(0,4), IntervalPredicate(7,8)})})))
+print(alg.minimize_predicate(OrPredicate({OrPredicate({IntervalPredicate(1,2), IntervalPredicate(3,5)}), AndPredicate({OrPredicate({IntervalPredicate(0,4), IntervalPredicate(7,8)}), IntervalPredicate(2,9)})})))
