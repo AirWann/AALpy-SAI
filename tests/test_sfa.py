@@ -3,7 +3,7 @@ import pytest
 from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
 
-
+#FULL DISCLOSURE: These tese were written by copilot
 def build_two_state_sfa():
     alg = IntervalAlgebra()
     s0 = SfaState(0, is_accepting=True)

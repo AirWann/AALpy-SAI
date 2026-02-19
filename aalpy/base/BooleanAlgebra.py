@@ -370,10 +370,10 @@ class IntervalAlgebra(BooleanAlgebra[int]):
             return acc 
         else:
             raise NotImplementedError("Minimization not implemented for this predicate type.")
-        
-alg = IntervalAlgebra()
-print(alg.and_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
-print(alg.or_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
-print(alg.is_satisfiable(IntervalPredicate(3,5)))
-print(alg.is_true(IntervalPredicate(None,None)))
-print(alg.minimize_predicate(OrPredicate({OrPredicate({IntervalPredicate(1,2), IntervalPredicate(3,5)}), AndPredicate({OrPredicate({IntervalPredicate(0,4), IntervalPredicate(7,8)}), IntervalPredicate(2,9)})})))
+# some adhoc tests      
+# alg = IntervalAlgebra()
+# print(alg.and_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
+# print(alg.or_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))
+# print(alg.is_satisfiable(IntervalPredicate(3,5)))
+# print(alg.is_true(IntervalPredicate(None,None)))
+# print(alg.minimize_predicate(OrPredicate({OrPredicate({IntervalPredicate(1,2), IntervalPredicate(3,5)}), AndPredicate({OrPredicate({IntervalPredicate(0,4), IntervalPredicate(7,8)}), IntervalPredicate(2,9)})})))
