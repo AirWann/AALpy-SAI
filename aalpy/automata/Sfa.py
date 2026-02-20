@@ -38,6 +38,8 @@ class Sfa(DeterministicAutomaton[SfaState]):
         super().__init__(initial_state, states)
         self.algebra: BooleanAlgebra = algebra or IntervalAlgebra()
 
+    def __str__(self):
+        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, transitions={{ {', '.join([f'{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
 
     def step(self, letter):
         """
@@ -154,19 +156,19 @@ class Sfa(DeterministicAutomaton[SfaState]):
             transitions = [(pred, tgt.state_id) for pred, tgt in s.transitions]
             state_setup[s.state_id] = (s.is_accepting, transitions)
         return state_setup
-    
-
+    def __repr__(self):
+        return self.to_state_setup(self)
 
 """Example SFA"""
 
 
-alg = IntervalAlgebra()
+# alg = IntervalAlgebra()
 
-testautomaton = Sfa.from_state_setup(
-    {
-        0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
-        1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
-    }, algebra=alg)
-print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
-print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
-print( [state.prefix for state in testautomaton.states])
+# testautomaton = Sfa.from_state_setup(
+#     {
+#         0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
+#         1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
+#     }, algebra=alg)
+# print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
+# print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
+# print( [state.prefix for state in testautomaton.states])
