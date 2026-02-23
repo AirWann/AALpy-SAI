@@ -1,7 +1,6 @@
 from functools import total_ordering
 from typing import List, Set,Tuple
 
-from networkx import nodes
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 
@@ -114,7 +113,7 @@ def to_automaton(red: List[SAINode]) -> Sfa:
     node_to_state = {}
     for i, n in enumerate(red):
         if n.accepting and n.rejecting:
-            raise ValueError(f"Inconsistent node labels at prefix {n.prefix}: both accepting and rejecting.")
+            raise ValueError(f"Inconsistent node at prefix {n.prefix}")
         sid = f"s{i}" #if n.prefix is None else str(n.prefix)
         st = SfaState(sid, is_accepting=n.accepting)
         st.prefix = n.prefix
@@ -141,7 +140,7 @@ while spta.children:
     all_nodes.append(spta)
     spta = spta.children[0][1]
 all_nodes.append(spta)
-print(all_nodes)
+#print(all_nodes)
 print(to_automaton(all_nodes))
 
 class SAI:
@@ -187,26 +186,27 @@ class SAI:
                 return False
         return True
     
-    def _replace_node_references(self, current: SAINode, old_node: SAINode, new_node: SAINode, visited=None):
+    def _replace_node_reference(self, current: SAINode, old_node: SAINode, new_node: SAINode, visited=None)->bool:
         """
         Replace all transition targets equal to old_node by new_node in the graph rooted at current.
         """
         if visited is None:
             visited = set()
         if current in visited:
-            return
+            return False
         visited.add(current)
 
-        new_children = []
-        for pred, child in current.children:
-            tgt = new_node if child is old_node else child
-            new_children.append((pred, tgt))
-        current.children = new_children
+        # Check children
+        for i, (pred, child) in enumerate(current.children):
+            if child is old_node:
+                current.children[i] = (pred, new_node)
+                return True
 
+        # Recurse until found once
         for _, child in current.children:
-            if not child in visited:
-                self._replace_node_references(child, old_node, new_node, visited)
-
+            if self._replace_node_reference(child, old_node, new_node, visited):
+                return True
+        return False
     def _merge_rec(self, red_node: SAINode, other_node: SAINode):
         """
         Recursive merge of other_node into red_node.
@@ -248,5 +248,5 @@ class SAI:
         # Merge blue into red
         self._merge_rec(red_node, blue_node)
         # Replace all references to blue_node in the graph by red_node
-        self._replace_node_references(red_node, blue_node, self.root)
+        self._replace_node_reference(self.root, blue_node, red_node)
         return red_node
