@@ -113,7 +113,20 @@ class Sfa(DeterministicAutomaton[SfaState]):
             s.transitions.append((missing, sink))
         if sink not in self.states:
             self.states.append(sink)
-
+    
+    def to_state_setup(self) -> Dict[int, Tuple[bool, List[Tuple[Predicate, int]]]]:
+        """
+        Convert SFA to state setup dict:
+            {
+                state_id: (is_accepting, [(predicate, target_state_id), ...]),
+                ...
+            }
+        """
+        state_setup = {}
+        for s in self.states:
+            transitions = [(pred, tgt.state_id) for pred, tgt in s.transitions]
+            state_setup[s.state_id] = (s.is_accepting, transitions)
+        return state_setup
     @staticmethod
     def from_state_setup(state_setup: Dict[int, Tuple[bool, List[Tuple[Predicate, int]]]],
                          algebra: BooleanAlgebra) -> 'Sfa':
@@ -142,22 +155,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
             state.prefix = sfa.get_shortest_path(sfa.initial_state, state)
 
         return sfa
-    @staticmethod
-    def to_state_setup(sfa: 'Sfa') -> Dict[int, Tuple[bool, List[Tuple[Predicate, int]]]]:
-        """
-        Convert SFA to state setup dict:
-            {
-                state_id: (is_accepting, [(predicate, target_state_id), ...]),
-                ...
-            }
-        """
-        state_setup = {}
-        for s in sfa.states:
-            transitions = [(pred, tgt.state_id) for pred, tgt in s.transitions]
-            state_setup[s.state_id] = (s.is_accepting, transitions)
-        return state_setup
+    
     def __repr__(self):
-        return self.to_state_setup(self)
+        return self.to_state_setup()
 
 """Example SFA"""
 
