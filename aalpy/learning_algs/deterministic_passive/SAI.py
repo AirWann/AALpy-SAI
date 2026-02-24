@@ -75,7 +75,7 @@ def create_SPTA(data:Set,algebra):
     _, longest_seq = max(((len(seq), seq) for seq, _ in data), key=lambda x: x[0])
     def create_SPTA_rec(data:Set, prefix=(),remaining=()):
         empty_word_labels = [l for w, l in data if len(w) == 0]
-        is_leaf = all(len(w) == 0 for w, _ in data)
+        is_leaf = (remaining == ())
         accepting = True in empty_word_labels
         rejecting = False in empty_word_labels
         if is_leaf:
@@ -141,16 +141,6 @@ def to_automaton(red: List[SAINode]) -> Sfa:
     return Sfa(node_to_state[root_node], list(node_to_state.values()), algebra=algebra)
 
 
-#some adhoc testing
-spta = create_SPTA({((1,2,3), False)}, IntervalAlgebra())
-all_nodes = []
-while spta.children:
-    all_nodes.append(spta)
-    spta = spta.children[0][1]
-all_nodes.append(spta)
-#print(all_nodes)
-print(to_automaton(all_nodes))
-
 class SAI:
     def __init__(self, data, algebra = IntervalAlgebra()):
         self.data = data
@@ -164,23 +154,25 @@ class SAI:
         blue = [s for _,s in self.root.children]
         while blue:
             qb = min(blue)
+            pred, father = self.find_transition_to(qb)
+            assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
             became_red_flag = False
             for r in red:
                #try merges and check consistency with data 
                 if r.accepting and qb.rejecting or r.rejecting and qb.accepting:
                     #don't even try
                     continue
-                merged = self.merge(r, qb.shallow_copy())
+                merged = self.merge(r, qb.shallow_copy(), father)
                 if self.is_consistent(red + [merged]):
                     #merge is accepted
                     became_red_flag = True
                     red.append(merged)
                     blue.remove(qb)
                     blue.extend([s for _,s in qb.children if s not in red and s not in blue])
+                    print(f"Merged {qb.prefix} into {r.prefix} to create {merged}")
                     break
                 else:
                     # undo merge by redirecting back transitions
-                    _, father = self.get_transition_to(merged, self.root)
                     if father is not None:
                         father.children = [((p, r) if c is merged else (p,c)) for (p, c) in father.children]
             if not became_red_flag:
@@ -190,39 +182,80 @@ class SAI:
                     red.append(qb)
                     blue.remove(qb)
                     blue.extend([s for _,s in qb.children if s not in red and s not in blue])
+                    print(f"Colored {qb.prefix} red")
             if not became_red_flag:
                 #split so the new qb can become red
-                pred = self._find_split_predicate(red, qb, self.algebra.true())
-                if pred is not None:
-                    self.split_transition(qb, pred)
+                
+                split_pred = self._find_split_predicate(red, qb,father)
+                if split_pred is None:
+                    raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
+                new_nodes = self.split_transition(qb, father, split_pred)
+                blue.remove(qb)
+                #find prefixes of new nodes to label them correctly
+                for n in new_nodes:
+                    pred_n = [p for p, c in father.children if c is n][0]
+                    n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
+                    #TODO this is a WILD hack
+                blue.extend(new_nodes)
+            print(f"Red: {red}, Blue: {blue}")
+        print ("Final red set:", red)
         return to_automaton(red)
         
-    def _find_split_predicate(self,red, node:SAINode, predicate:Predicate):
-        for letter in [s[0][0] for s in node.sample]:
-            split = self.split_transition(node, IntervalPredicate(None,letter))
-            if self.is_consistent(red+[split]):
-                return IntervalPredicate(None,letter)
-        return None
-    def split_transition(self, node:SAINode, split_predicate:Predicate):
+    def _find_split_predicate(self,red, node:SAINode,father:SAINode):
+        old_pred = [p for p, c in father.children if c is node][0]
+        relevant_letters = sorted({
+            s[0][0]
+            for s in father.sample
+            if len(s[0]) > 0 and old_pred.eval(s[0][0])
+        })
+
+        # Need at least 2 distinct letters to create a non-trivial split.
+        if len(relevant_letters) < 2:
+            raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
+
+        original_children = list(father.children)
+        best_predicate = None
+
+        # Try increasingly larger intervals: (-inf, letter[
+        # Keep the largest consistent one; stop at first inconsistent.
+        for letter in relevant_letters:
+            print(f"Trying split at {letter}")
+            candidate = IntervalPredicate(None, letter)
+            try:
+                split_nodes = self.split_transition(node, father, candidate)
+                is_ok = self.is_consistent(red + list(split_nodes))
+            except AssertionError:
+                is_ok = False
+            finally:
+                # Undo tentative split before trying next candidate.
+                father.children = list(original_children)
+
+            if is_ok:
+                best_predicate = candidate
+        return best_predicate
+    def split_transition(self, node:SAINode, father:SAINode, split_predicate:Predicate):
         """
-        Split the transition LEADING TO node by split_predicate, and return the resulting two nodes.
+        Split the transition from father to node by split_predicate, and return the two new child nodes created by the split.
         """
         #get the only transition leading to node
-        father, old_predicate = self.find_transition_to(node)
+        old_predicate = [p for p, c in father.children if c is node][0]
         #get suffixes
-        sample = node.sample
+        sample = father.sample
         #copy irrelevant transitions
-        new_transitions = [(p, c) for p, c in node.children if p != old_predicate]
+        new_transitions = [(p, c) for p, c in father.children if p != old_predicate]
         
         new_predicate1 = self.algebra.and_op(old_predicate, split_predicate)
         new_predicate2 = self.algebra.and_op(old_predicate, split_predicate.negate())
         #sort suffixes appropriately and create new nodes (SPTA)
-        child1 = create_SPTA({(s[1:], l) for s, l in sample if new_predicate1.eval(s[0])}, self.algebra)
-        child2 = create_SPTA({(s[1:], l) for s, l in sample if new_predicate2.eval(s[0])}, self.algebra)
+        data1 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate1.eval(s[0]))}
+        data2 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate2.eval(s[0]))}
+        assert data1 != set() and data2 != set(), f"Split on {split_predicate} does not partition the sample at node with prefix {node.prefix}"
+        child1 = create_SPTA(data1, self.algebra)
+        child2 = create_SPTA(data2, self.algebra)
         new_transitions.append((new_predicate1, child1))
         new_transitions.append((new_predicate2, child2))
-        node.children = new_transitions
-        return node
+        father.children = new_transitions
+        return child1, child2
 
     def is_consistent(self,red:List[SAINode]):
         """
@@ -266,7 +299,7 @@ class SAI:
             projected_spta = create_SPTA(projected, self.algebra)
             self._merge_rec(red_child, projected_spta)
 
-    def merge(self, red_node:SAINode, blue_node:SAINode):
+    def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None):
         """
         Merge two nodes and return the root node of resulting model.
         No check for compatibility is needed as outgoing transitions from blue are always a single TRUE.
@@ -278,10 +311,9 @@ class SAI:
         # Merge blue into red
         self._merge_rec(red_node, blue_node)
         # Replace reference to blue_node in the graph by red_node
-        _, father = self.find_transition_to(blue_node)
-        if father is not None:
+        if blue_father is not None:
             # Remove blue_node's transition
-            father.children = [((p, red_node) if c is blue_node else (p,c)) for (p, c) in father.children]
+            blue_father.children = [((p, red_node) if c == blue_node else (p,c)) for (p, c) in blue_father.children]
         return red_node
     def find_transition_to(self, target: SAINode, current: SAINode=None, visited=None):
         """
@@ -304,3 +336,16 @@ class SAI:
             if res is not None:
                 return res
         raise ValueError(f"Transition to target node {target} not found")
+
+
+#(ε, −), (0, +), (100, −), (0 · 0, −),(0 · 100, +)
+sample = {
+    ((), False),
+    ((0,), True),
+    ((100,), False),
+    #((0, 0), False),
+    #((0, 100), True)
+}
+sai = SAI(sample, algebra=IntervalAlgebra())
+automaton = sai.run_SAI()
+print(automaton)
