@@ -19,7 +19,7 @@ class SAINode:
         - algebra: the Boolean algebra used for predicates
     """
     __slots__ = ['accepting','rejecting', 'children', 'prefix', 'sample', 'algebra']
-    def __init__(self, children:List[Tuple[Predicate, 'SAINode']]=[], accepting=False, rejecting=False, prefix = (), sample:Set[Tuple[Tuple, bool]]=None, algebra: BooleanAlgebra = IntervalAlgebra()):
+    def __init__(self, children:List[Tuple[Predicate, 'SAINode']]=[], accepting=False, rejecting=False, prefix:Tuple= (), sample:Set[Tuple[Tuple, bool]]=None, algebra: BooleanAlgebra = IntervalAlgebra()):
         self.children = children
         self.prefix = prefix
         self.accepting = accepting
@@ -65,7 +65,7 @@ def check_sequence(root_node, seq, label):
     return node.accepting if label else node.rejecting
 
 
-def create_SPTA(data:Set,algebra):
+def create_SPTA(data:Set,algebra,prefix=()):
     """
     Create the Symbolic Prefix Tree Acceptor for the given dataset and algebra.
 
@@ -88,7 +88,7 @@ def create_SPTA(data:Set,algebra):
             node.children = [(algebra.true(), child)]
             return node
 
-    return create_SPTA_rec(data, (),longest_seq)
+    return create_SPTA_rec(data, prefix, longest_seq)
 
 
 
@@ -152,6 +152,7 @@ class SAI:
             raise ValueError("Inconsistent root node in SPTA - cannot run SAI")
         red = [self.root]
         blue = [s for _,s in self.root.children]
+        print(f"Initial red set: {red},\nInitial blue set: {blue}")
         while blue:
             qb = min(blue)
             pred, father = self.find_transition_to(qb)
@@ -166,10 +167,13 @@ class SAI:
                 if self.is_consistent(red + [merged]):
                     #merge is accepted
                     became_red_flag = True
-                    red.append(merged)
+                    if merged not in red:
+                        red.append(merged)
                     blue.remove(qb)
-                    blue.extend([s for _,s in qb.children if s not in red and s not in blue])
-                    print(f"Merged {qb.prefix} into {r.prefix} to create {merged}")
+                    new_blue = [s for _,s in merged.children if s not in red and s not in blue]
+                    blue.extend(new_blue)
+                    print(f"\nMerged {qb.prefix} into {r.prefix} to create {merged}")
+                    
                     break
                 else:
                     # undo merge by redirecting back transitions
@@ -179,10 +183,12 @@ class SAI:
                 #try coloring red if consistent with data
                 if self.is_consistent(red + [qb]):
                     became_red_flag = True
-                    red.append(qb)
+                    if qb not in red:
+                        red.append(qb)
                     blue.remove(qb)
-                    blue.extend([s for _,s in qb.children if s not in red and s not in blue])
-                    print(f"Colored {qb.prefix} red")
+                    new_blue = [s for _,s in qb.children if s not in red and s not in blue]
+                    blue.extend(new_blue)
+                    print(f"\nColored {qb.prefix} red")
             if not became_red_flag:
                 #split so the new qb can become red
                 
@@ -195,13 +201,13 @@ class SAI:
                 for n in new_nodes:
                     pred_n = [p for p, c in father.children if c is n][0]
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
-                    #TODO this is a WILD hack
+                    #TODO this is a hack
                 blue.extend(new_nodes)
-            print(f"Red: {red}, Blue: {blue}")
+            print(f"Red: {red},\nBlue: {blue}")
         print ("Final red set:", red)
         return to_automaton(red)
         
-    def _find_split_predicate(self,red, node:SAINode,father:SAINode):
+    def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
         old_pred = [p for p, c in father.children if c is node][0]
         relevant_letters = sorted({
             s[0][0]
@@ -223,7 +229,7 @@ class SAI:
             candidate = IntervalPredicate(None, letter)
             try:
                 split_nodes = self.split_transition(node, father, candidate)
-                is_ok = self.is_consistent(red + list(split_nodes))
+                is_ok = self.is_consistent(red + [split_nodes[0]])
             except AssertionError:
                 is_ok = False
             finally:
@@ -250,8 +256,8 @@ class SAI:
         data1 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate1.eval(s[0]))}
         data2 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate2.eval(s[0]))}
         assert data1 != set() and data2 != set(), f"Split on {split_predicate} does not partition the sample at node with prefix {node.prefix}"
-        child1 = create_SPTA(data1, self.algebra)
-        child2 = create_SPTA(data2, self.algebra)
+        child1 = create_SPTA(data1, self.algebra, prefix=father.prefix + (self.algebra.pick_witness(new_predicate1),))
+        child2 = create_SPTA(data2, self.algebra, prefix=father.prefix + (self.algebra.pick_witness(new_predicate2),))
         new_transitions.append((new_predicate1, child1))
         new_transitions.append((new_predicate2, child2))
         father.children = new_transitions
@@ -339,12 +345,15 @@ class SAI:
 
 
 #(ε, −), (0, +), (100, −), (0 · 0, −),(0 · 100, +)
+#should learn automaton recognizing words with odd numbers of letters below 100
 sample = {
     ((), False),
     ((0,), True),
     ((100,), False),
-    #((0, 0), False),
-    #((0, 100), True)
+    ((0, 0), False),
+    ((0, 100), True),
+    ((0,0,0,0,0,0,0,0,0,0), False),
+    ((0,0,0,0,0,0,0,100), True),
 }
 sai = SAI(sample, algebra=IntervalAlgebra())
 automaton = sai.run_SAI()

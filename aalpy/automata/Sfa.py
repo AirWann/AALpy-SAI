@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Set, Tuple, Dict
 
 from aalpy.base import AutomatonState, DeterministicAutomaton
 from aalpy.base.Automaton import InputType
@@ -89,6 +89,32 @@ class Sfa(DeterministicAutomaton[SfaState]):
                 explored.append(node)
 
         return None
+    def find_distinguishing_seq(self, state1, state2):
+        """
+        A BFS to determine an input sequence that distinguishes two states in the automaton, i.e., a sequence such that
+        the output response from the given states is different. In a minimal automaton, this function always returns a
+        sequence different from None
+        Args:
+            state1: first state
+            state2: second state to distinguish
+
+        Returns: an input sequence distinguishing two states, or None if the states are equivalent
+
+        """
+        visited = set()
+        to_explore = [(state1, state2, [])]
+        while to_explore:
+            (curr_s1, curr_s2, prefix) = to_explore.pop(0)
+            visited.add((curr_s1, curr_s2))
+            if curr_s1.is_accepting != curr_s2.is_accepting:
+                return tuple(prefix)
+            for (pred1, next_s1) in curr_s1.transitions:
+                for (pred2, next_s2) in curr_s2.transitions:
+                    and_pred = self.algebra.and_op(pred1, pred2)
+                    if self.algebra.is_satisfiable(and_pred):
+                        if (next_s1, next_s2) not in visited:
+                            to_explore.append((next_s1, next_s2, prefix + [self.algebra.pick_witness(and_pred)]))
+        return None
     
     def is_input_complete(self) -> bool:
         # disjunction of all outgoing predicates must be True
@@ -158,17 +184,50 @@ class Sfa(DeterministicAutomaton[SfaState]):
     
     def __repr__(self):
         return self.to_state_setup()
+    def characteristic_sample(self) -> Set[Tuple[Tuple, bool]]:
+        """
+        Generate a characteristic sample for the SFA.
+        For each pair of states, add two words with prefix leading to each of the states and a distinguishing suffix if they are not equivalent.
+        For each transitionm add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
+        """
+        sample_no_label = set()
+        for s1 in self.states:
+            for s2 in self.states:
+                    prefix1 = self.get_shortest_path(self.initial_state, s1)
+                    prefix2 = self.get_shortest_path(self.initial_state, s2)
+                    suffix = self.find_distinguishing_seq(s1, s2)
+                    if suffix is None:
+                        suffix = ()
+                    sample_no_label.add((prefix1 + suffix))
+                    sample_no_label.add((prefix2 + suffix))
+        for s in self.states:
+
+            prefix = self.get_shortest_path(self.initial_state, s)
+            for pred, next_s in s.transitions:
+                word = prefix + (self.algebra.pick_witness(pred),)
+                suffixes = [self.find_distinguishing_seq(s, other_s) for other_s in self.states if other_s != s]
+                for suffix in suffixes:
+                    sample_no_label.add((word + suffix))
+        sample = set()
+        for word in sample_no_label.copy():
+            if word == ():
+                sample.add((word, self.initial_state.output))
+            else:
+                sample.add((word, self.compute_output_seq(self.initial_state, word)[-1]))
+        return sample
+
 
 """Example SFA"""
 
 
-# alg = IntervalAlgebra()
+alg = IntervalAlgebra()
 
-# testautomaton = Sfa.from_state_setup(
-#     {
-#         0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
-#         1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
-#     }, algebra=alg)
-# print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
-# print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
-# print( [state.prefix for state in testautomaton.states])
+testautomaton = Sfa.from_state_setup(
+    {
+        0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
+        1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
+    }, algebra=alg)
+print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
+print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
+print( [state.prefix for state in testautomaton.states])
+print(testautomaton.characteristic_sample())
