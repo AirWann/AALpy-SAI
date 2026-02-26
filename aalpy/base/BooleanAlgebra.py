@@ -170,8 +170,11 @@ class IntervalPredicate(Predicate):
         self.upper = upper
     
     def eval(self, element: int) -> bool:
-        lower_ok = True if self.lower is None else element >= self.lower
-        upper_ok = True if self.upper is None else element < self.upper
+        if element is None:
+            print("Warning: Evaluating IntervalPredicate on None element, returning False.")
+            return False
+        lower_ok = True if (self.lower is None) else element >= self.lower
+        upper_ok = True if (self.upper is None) else element < self.upper
         return lower_ok and upper_ok
 
     def negate(self) -> 'Predicate':

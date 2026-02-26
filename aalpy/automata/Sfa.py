@@ -39,7 +39,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
         self.algebra: BooleanAlgebra = algebra or IntervalAlgebra()
 
     def __str__(self):
-        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, transitions={{ {', '.join([f'{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
+        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
 
     def step(self, letter):
         """
@@ -56,6 +56,12 @@ class Sfa(DeterministicAutomaton[SfaState]):
                 self.current_state = next
                 return self.current_state.is_accepting
         raise KeyError(f"No transition for input {letter} from state {self.current_state.state_id}.")
+
+    def accepts(self, word):
+        if len(word) == 0:
+            return self.initial_state.is_accepting
+        else:
+            return self.compute_output_seq(self.initial_state, word)[-1]
 
     def get_shortest_path(self, origin_state: SfaState, target_state: SfaState) -> Tuple | None:
         if origin_state not in self.states or target_state not in self.states:
@@ -188,7 +194,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
         """
         Generate a characteristic sample for the SFA.
         For each pair of states, add two words with prefix leading to each of the states and a distinguishing suffix if they are not equivalent.
-        For each transitionm add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
+        For each transition add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
         """
         sample_no_label = set()
         for s1 in self.states:
@@ -198,15 +204,23 @@ class Sfa(DeterministicAutomaton[SfaState]):
                     suffix = self.find_distinguishing_seq(s1, s2)
                     if suffix is None:
                         suffix = ()
+                    if prefix1 is None:
+                        prefix1 = ()
+                    if prefix2 is None:
+                        prefix2 = ()
                     sample_no_label.add((prefix1 + suffix))
                     sample_no_label.add((prefix2 + suffix))
         for s in self.states:
 
             prefix = self.get_shortest_path(self.initial_state, s)
+            if prefix is None:
+                prefix = ()
             for pred, next_s in s.transitions:
                 word = prefix + (self.algebra.pick_witness(pred),)
                 suffixes = [self.find_distinguishing_seq(s, other_s) for other_s in self.states if other_s != s]
                 for suffix in suffixes:
+                    if suffix is None:
+                        suffix = ()
                     sample_no_label.add((word + suffix))
         sample = set()
         for word in sample_no_label.copy():
@@ -220,14 +234,14 @@ class Sfa(DeterministicAutomaton[SfaState]):
 """Example SFA"""
 
 
-alg = IntervalAlgebra()
+# alg = IntervalAlgebra()
 
-testautomaton = Sfa.from_state_setup(
-    {
-        0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
-        1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
-    }, algebra=alg)
-print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
-print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
-print( [state.prefix for state in testautomaton.states])
-print(testautomaton.characteristic_sample())
+# testautomaton = Sfa.from_state_setup(
+#     {
+#         0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
+#         1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
+#     }, algebra=alg)
+# print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
+# print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
+# print( [state.prefix for state in testautomaton.states])
+# print(testautomaton.characteristic_sample())

@@ -4,8 +4,6 @@ from typing import List, Set,Tuple
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 
-from aalpy.base import BooleanAlgebra
-
 @total_ordering
 class SAINode:
     """
@@ -178,7 +176,7 @@ class SAI:
                 else:
                     # undo merge by redirecting back transitions
                     if father is not None:
-                        father.children = [((p, r) if c is merged else (p,c)) for (p, c) in father.children]
+                        father.children = [((p, qb) if c is merged else (p,c)) for (p, c) in father.children]
             if not became_red_flag:
                 #try coloring red if consistent with data
                 if self.is_consistent(red + [qb]):
@@ -191,7 +189,7 @@ class SAI:
                     print(f"\nColored {qb.prefix} red")
             if not became_red_flag:
                 #split so the new qb can become red
-                
+                print(f"\nTrying to split node {qb.prefix} with father {father.prefix if father else None}")
                 split_pred = self._find_split_predicate(red, qb,father)
                 if split_pred is None:
                     raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
@@ -208,7 +206,10 @@ class SAI:
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
-        old_pred = [p for p, c in father.children if c is node][0]
+        try:
+            old_pred = [p for p, c in father.children if c is node][0]
+        except IndexError:
+            raise ValueError(f"Node {node.prefix} not found in father's {father.prefix} children {[c.prefix for _, c in father.children]}")  
         relevant_letters = sorted({
             s[0][0]
             for s in father.sample
@@ -235,9 +236,10 @@ class SAI:
             finally:
                 # Undo tentative split before trying next candidate.
                 father.children = list(original_children)
-
             if is_ok:
                 best_predicate = candidate
+        if best_predicate is None:
+            raise ValueError(f"Could not find a split predicate for node with prefix {node.prefix} among candidates {relevant_letters}")
         return best_predicate
     def split_transition(self, node:SAINode, father:SAINode, split_predicate:Predicate):
         """
@@ -346,15 +348,15 @@ class SAI:
 
 #(ε, −), (0, +), (100, −), (0 · 0, −),(0 · 100, +)
 #should learn automaton recognizing words with odd numbers of letters below 100
-sample = {
-    ((), False),
-    ((0,), True),
-    ((100,), False),
-    ((0, 0), False),
-    ((0, 100), True),
-    ((0,0,0,0,0,0,0,0,0,0), False),
-    ((0,0,0,0,0,0,0,100), True),
-}
-sai = SAI(sample, algebra=IntervalAlgebra())
-automaton = sai.run_SAI()
-print(automaton)
+# sample = {
+#     ((), False),
+#     ((0,), True),
+#     ((100,), False),
+#     ((0, 0), False),
+#     ((0, 100), True),
+#     ((0,0,0,0,0,0,0,0,0,0), False),
+#     ((0,0,0,0,0,0,0,100), True),
+# }
+# sai = SAI(sample, algebra=IntervalAlgebra())
+# automaton = sai.run_SAI()
+# print(automaton)
