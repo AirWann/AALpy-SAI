@@ -24,7 +24,7 @@ def generate_sfa():
 
 
 try:
-    np.random.seed(1)  # For reproducibility
+    # np.random.seed(5)
     sfa = generate_sfa()
     sample = sfa.characteristic_sample()
     print(f"Sample: {sample}, length: {len(sample)}")

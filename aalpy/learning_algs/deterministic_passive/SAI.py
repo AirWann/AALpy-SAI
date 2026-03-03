@@ -156,12 +156,15 @@ class SAI:
             pred, father = self.find_transition_to(qb)
             assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
             became_red_flag = False
+            red_save = red.copy()
             for r in red:
                #try merges and check consistency with data 
                 if r.accepting and qb.rejecting or r.rejecting and qb.accepting:
                     #don't even try
                     continue
-                merged = self.merge(r, qb.shallow_copy(), father)
+                merged, undo_log, old_father_children = self.merge(
+                    r, qb.shallow_copy(), father, with_undo=True
+                )
                 if self.is_consistent(red + [merged]):
                     #merge is accepted
                     became_red_flag = True
@@ -170,13 +173,16 @@ class SAI:
                     blue.remove(qb)
                     new_blue = [s for _,s in merged.children if s not in red and s not in blue]
                     blue.extend(new_blue)
-                    print(f"\nMerged {qb.prefix} into {r.prefix} to create {merged}")
+                    print(f"Merged {qb.prefix} into {r.prefix} to create {merged}")
                     
                     break
                 else:
-                    # undo merge by redirecting back transitions
                     if father is not None:
-                        father.children = [((p, qb) if c is merged else (p,c)) for (p, c) in father.children]
+                        father.children = old_father_children
+                    for node, acc, rej, sample in reversed(undo_log):
+                        node.accepting = acc
+                        node.rejecting = rej
+                        node.sample = sample
             if not became_red_flag:
                 #try coloring red if consistent with data
                 if self.is_consistent(red + [qb]):
@@ -186,10 +192,10 @@ class SAI:
                     blue.remove(qb)
                     new_blue = [s for _,s in qb.children if s not in red and s not in blue]
                     blue.extend(new_blue)
-                    print(f"\nColored {qb.prefix} red")
+                    print(f"Colored {qb.prefix} red")
             if not became_red_flag:
                 #split so the new qb can become red
-                print(f"\nTrying to split node {qb.prefix} with father {father.prefix if father else None}")
+                print(f"Trying to split node {qb.prefix} with father {father.prefix if father else None}")
                 split_pred = self._find_split_predicate(red, qb,father)
                 if split_pred is None:
                     raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
@@ -201,7 +207,7 @@ class SAI:
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
                     #TODO this is a hack
                 blue.extend(new_nodes)
-            print(f"Red: {red},\nBlue: {blue}")
+            print(f"\n\nRed: {red},\nBlue: {blue}")
         print ("Final red set:", red)
         return to_automaton(red)
         
@@ -287,11 +293,18 @@ class SAI:
                 return False
         return True
     
-    def _merge_rec(self, red_node: SAINode, other_node: SAINode):
+    def _record_node_state(self, node: SAINode, undo_log, seen):
+        if node in seen:
+            return
+        seen.add(node)
+        undo_log.append((node, node.accepting, node.rejecting, node.sample))
+    def _merge_rec(self, red_node: SAINode, other_node: SAINode, undo_log=None, seen=None):
         """
         Recursive merge of other_node into red_node.
         """
         # Merge labels and samples at current node
+        if undo_log is not None and seen is not None:
+            self._record_node_state(red_node, undo_log, seen)
         red_node.accepting = red_node.accepting or other_node.accepting
         red_node.rejecting = red_node.rejecting or other_node.rejecting
 
@@ -314,9 +327,9 @@ class SAI:
                 continue
 
             projected_spta = create_SPTA(projected, self.algebra)
-            self._merge_rec(red_child, projected_spta)
+            self._merge_rec(red_child, projected_spta, undo_log, seen)
 
-    def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None):
+    def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None, with_undo: bool = False):
         """
         Merge two nodes and return the root node of resulting model.
         No check for compatibility is needed as outgoing transitions from blue are always a single TRUE.
@@ -324,36 +337,47 @@ class SAI:
         """
         if red_node is blue_node:
             print("Warning: trying to merge a node with itself")
-            return red_node
+            return (red_node, [], None) if with_undo else red_node
+        
+        undo_log = []
+        seen = set()
+        old_father_children = blue_father.children.copy() if (with_undo and blue_father is not None) else None
         # Merge blue into red
-        self._merge_rec(red_node, blue_node)
+        self._merge_rec(red_node, blue_node, undo_log if with_undo else None, seen if with_undo else None)
         # Replace reference to blue_node in the graph by red_node
         if blue_father is not None:
             # Remove blue_node's transition
             blue_father.children = [((p, red_node) if c == blue_node else (p,c)) for (p, c) in blue_father.children]
+        if with_undo:
+            return red_node, undo_log, old_father_children
+
         return red_node
+        
     def find_transition_to(self, target: SAINode, current: SAINode=None, visited=None):
         """
         Find a transition to "target" in the graph
         """
+        top_level = current is None
         if current is None:
             current = self.root
         if visited is None:
             visited = set()
+
         if current in visited:
             return None
         visited.add(current)
 
         for pred, child in current.children:
-            if child is target:
+            if child == target:
                 return pred, current
 
         for _, child in current.children:
             res = self.find_transition_to(target, child, visited)
             if res is not None:
                 return res
-        raise ValueError(f"Transition to target node {target} not found")
-
+        if top_level:
+            raise ValueError(f"Transition to target node {target} not found")
+        return None
 
 #(ε, −), (0, +), (100, −), (0 · 0, −),(0 · 100, +)
 #should learn automaton recognizing words with odd numbers of letters below 100
