@@ -210,6 +210,8 @@ class SAI:
             old_pred = [p for p, c in father.children if c is node][0]
         except IndexError:
             raise ValueError(f"Node {node.prefix} not found in father's {father.prefix} children {[c.prefix for _, c in father.children]}")  
+        relevant_words = [s for s in father.sample if len(s[0]) > 0 and old_pred.eval(s[0][0])]
+        
         relevant_letters = sorted({
             s[0][0]
             for s in father.sample
@@ -218,9 +220,10 @@ class SAI:
 
         # Need at least 2 distinct letters to create a non-trivial split.
         if len(relevant_letters) < 2:
+            print(f"Sample: {father.sample}")
             raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
 
-        original_children = list(father.children)
+        original_children = father.children.copy()
         best_predicate = None
 
         # Try increasingly larger intervals: (-inf, letter[
@@ -235,10 +238,13 @@ class SAI:
                 is_ok = False
             finally:
                 # Undo tentative split before trying next candidate.
-                father.children = list(original_children)
+                father.children = original_children.copy()
             if is_ok:
                 best_predicate = candidate
+            else:
+                print(f"Split at {letter} is not consistent with data")
         if best_predicate is None:
+            print("Relevant words:", relevant_words)
             raise ValueError(f"Could not find a split predicate for node with prefix {node.prefix} among candidates {relevant_letters}")
         return best_predicate
     def split_transition(self, node:SAINode, father:SAINode, split_predicate:Predicate):
@@ -254,6 +260,7 @@ class SAI:
         
         new_predicate1 = self.algebra.and_op(old_predicate, split_predicate)
         new_predicate2 = self.algebra.and_op(old_predicate, split_predicate.negate())
+        assert not self.algebra.is_satisfiable(self.algebra.and_op(new_predicate1, new_predicate2)), f"New predicates {new_predicate1} and {new_predicate2} are not disjoint after splitting on {split_predicate} at node with prefix {node.prefix}"
         #sort suffixes appropriately and create new nodes (SPTA)
         data1 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate1.eval(s[0]))}
         data2 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate2.eval(s[0]))}
@@ -271,10 +278,12 @@ class SAI:
         """
         for node in red:
             if node.accepting and node.rejecting:
+                print(f"node {node.prefix} inconsistent")
                 return False
             pos = {w for w, l in node.sample if l}
             neg = {w for w, l in node.sample if not l}
             if pos & neg:  # If there is any word label positively and negatively
+                print(pos&neg)
                 return False
         return True
     
