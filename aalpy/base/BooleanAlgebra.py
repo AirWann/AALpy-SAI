@@ -171,8 +171,7 @@ class IntervalPredicate(Predicate):
     
     def eval(self, element: int) -> bool:
         if element is None:
-            print("Warning: Evaluating IntervalPredicate on None element, returning False.")
-            return False
+            raise ValueError("Warning: Evaluating IntervalPredicate on None element.")
         lower_ok = True if (self.lower is None) else element >= self.lower
         upper_ok = True if (self.upper is None) else element < self.upper
         return lower_ok and upper_ok
@@ -292,10 +291,24 @@ class IntervalAlgebra(BooleanAlgebra[int]):
             return domain if domain is not None else set()
     
     def pick_witness(self, predicate: 'IntervalPredicate') -> Optional[int]:
-        if not self.is_satisfiable(predicate):
+        if isinstance(predicate, IntervalPredicate):
+            if not self.is_satisfiable(predicate):
+                return None
+            return predicate.lower if predicate.lower is not None else ((predicate.upper - 1) if predicate.upper is not None else 0)
+        # OR : witness from any satisfiable branch
+        elif isinstance(predicate, OrPredicate):
+            for pred in predicate.predlist:
+                witness = self.pick_witness(pred)
+                if witness is not None and predicate.eval(witness):
+                    return witness
             return None
-        return predicate.lower if predicate.lower is not None else ((predicate.upper - 1) if predicate.upper is not None else 0)
-    
+
+        # AND : minimize then pick
+        elif isinstance(predicate, AndPredicate):
+            minimized = self.minimize_predicate(predicate)
+            return self.pick_witness(minimized)
+
+        return None
     # convert bounds to numeric for sorting/merging (-inf/inf for None)
     def to_bounds(self,ip: IntervalPredicate):
         lo = float("-inf") if ip.lower is None else ip.lower

@@ -1,9 +1,11 @@
 from typing import List, Set, Tuple, Dict
 
+from matplotlib.pylab import sample
+
 from aalpy.base import AutomatonState, DeterministicAutomaton
 from aalpy.base.Automaton import InputType
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
-import warnings
+
 
 class SfaState(AutomatonState):
     """
@@ -39,7 +41,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
         self.algebra: BooleanAlgebra = algebra or IntervalAlgebra()
 
     def __str__(self):
-        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
+        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'\n{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
 
     def step(self, letter):
         """
@@ -63,10 +65,82 @@ class Sfa(DeterministicAutomaton[SfaState]):
         else:
             return self.compute_output_seq(self.initial_state, word)[-1]
 
+    def bisimilar(self, other: 'Sfa', return_cex: bool = False) -> bool | None | Tuple:
+        """
+        Check bisimilarity with another SFA.
+
+        If return_cex is False:
+            returns True/False.
+        If return_cex is True:
+            returns None if bisimilar, otherwise a concrete counterexample input tuple.
+        """
+        if not isinstance(other, Sfa):
+            raise ValueError("tried to check bisimilarity of different automaton types")
+
+        if self is other:
+            other = self.copy()
+
+        def _extend_with_witness(prefix: Tuple, pred: Predicate) -> Tuple:
+            w = self.algebra.pick_witness(pred)
+            if w is None:
+                w = self.algebra.pick_witness(self.algebra.minimize_predicate(pred))
+            return prefix if w is None else prefix + (w,)
+        
+        to_check = [(self.initial_state, other.initial_state)]
+        requirements = {(self.initial_state, other.initial_state): ()}
+        visited = set()
+        if not self.is_input_complete() or not other.is_input_complete():
+            print("Warning: bisimilarity check between incomplete automata")
+            new_self = self.copy()
+            new_self.make_input_complete()
+            new_other = other.copy()
+            new_other.make_input_complete()
+            return new_self.bisimilar(new_other, return_cex)
+        
+        while to_check:
+            s1, s2 = to_check.pop(0)
+            if (s1, s2) in visited:
+                continue
+            visited.add((s1, s2))
+
+            # accepting status must match
+            if s1.output != s2.output:
+                return requirements[(s1, s2)] if return_cex else False
+
+            # Enabled input regions must match not needed for complete automata
+            # disj1 = self.algebra.false()
+            # for p1, _ in s1.transitions:
+            #     disj1 = self.algebra.or_op(disj1, p1)
+
+            # disj2 = self.algebra.false()
+            # for p2, _ in s2.transitions:
+            #     disj2 = self.algebra.or_op(disj2, p2)
+
+            # only_1 = self.algebra.and_op(disj1, disj2.negate())
+            # if self.algebra.is_satisfiable(only_1):
+            #     cex = _extend_with_witness(requirements[(s1, s2)], only_1)
+            #     return cex if return_cex else False
+
+            # only_2 = self.algebra.and_op(disj2, disj1.negate())
+            # if self.algebra.is_satisfiable(only_2):
+            #     cex = _extend_with_witness(requirements[(s1, s2)], only_2)
+            #     return cex if return_cex else False
+
+            # Successor compatibility for overlapping guards
+            for p1, n1 in s1.transitions:
+                for p2, n2 in s2.transitions:
+                    inter = self.algebra.and_op(p1, p2)
+                    if self.algebra.is_satisfiable(inter):
+                        if (n1, n2) not in requirements:
+                            requirements[(n1, n2)] = _extend_with_witness(requirements[(s1, s2)], inter)
+                            to_check.append((n1, n2))
+
+        return None if return_cex else True
+
     def get_shortest_path(self, origin_state: SfaState, target_state: SfaState) -> Tuple | None:
         if origin_state not in self.states or target_state not in self.states:
-            warnings.warn('Origin or target state not in automaton. Returning None.')
-            return None
+            raise ValueError('Origin or target state not in automaton. Returning None.')
+            
 
         explored = []
         queue = [[origin_state]]
@@ -196,12 +270,28 @@ class Sfa(DeterministicAutomaton[SfaState]):
         For each pair of states, add two words with prefix leading to each of the states and a distinguishing suffix if they are not equivalent.
         For each transition add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
         """
+        def remove_none(word):
+            if word is None or None in word:
+                return ()
+            return word
         sample_no_label = set()
+        #keep distinguishing seqs stored for all pairs of states to avoid recomputation 
+        prefix_cache = {
+            s: (self.get_shortest_path(self.initial_state, s) or ())
+            for s in self.states
+        }
+
+        suffix_cache = {}
         for s1 in self.states:
             for s2 in self.states:
-                    prefix1 = self.get_shortest_path(self.initial_state, s1)
-                    prefix2 = self.get_shortest_path(self.initial_state, s2)
-                    suffix = self.find_distinguishing_seq(s1, s2)
+                suffix_cache[(s1, s2)] = self.find_distinguishing_seq(s1, s2) or ()
+
+        #distinguish pairs of states
+        for s1 in self.states:
+            for s2 in self.states:
+                    prefix1 = prefix_cache[s1]
+                    prefix2 = prefix_cache[s2]
+                    suffix = suffix_cache[(s1, s2)]
                     if suffix is None:
                         suffix = ()
                     if prefix1 is None:
@@ -210,24 +300,23 @@ class Sfa(DeterministicAutomaton[SfaState]):
                         prefix2 = ()
                     sample_no_label.add((prefix1 + suffix))
                     sample_no_label.add((prefix2 + suffix))
+        #distinguish transitions
         for s in self.states:
-
-            prefix = self.get_shortest_path(self.initial_state, s)
+            prefix = prefix_cache[s]
             if prefix is None:
                 prefix = ()
             for pred, next_s in s.transitions:
+                if not self.algebra.is_satisfiable(pred):
+                    continue
                 word = prefix + (self.algebra.pick_witness(pred),)
-                suffixes = [self.find_distinguishing_seq(s, other_s) for other_s in self.states if other_s != s]
+                suffixes = [suffix_cache[(s, other_s)] for other_s in self.states if other_s != next_s]
                 for suffix in suffixes:
                     if suffix is None:
                         suffix = ()
                     sample_no_label.add((word + suffix))
         sample = set()
-        for word in sample_no_label.copy():
-            if word == ():
-                sample.add((word, self.initial_state.output))
-            else:
-                sample.add((word, self.compute_output_seq(self.initial_state, word)[-1]))
+        for word in {remove_none(w) for w in sample_no_label}:
+            sample.add((word, self.accepts(word)))
         return sample
 
 

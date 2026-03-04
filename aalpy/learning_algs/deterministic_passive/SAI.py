@@ -140,17 +140,19 @@ def to_automaton(red: List[SAINode]) -> Sfa:
 
 
 class SAI:
-    def __init__(self, data, algebra = IntervalAlgebra()):
+    def __init__(self, data, algebra = IntervalAlgebra(), print_info=False):
         self.data = data
         self.algebra = algebra
         self.root = create_SPTA(data, algebra)
+        self.print_info = print_info
 
     def run_SAI(self):
         if self.root.accepting and self.root.rejecting:
             raise ValueError("Inconsistent root node in SPTA - cannot run SAI")
         red = [self.root]
         blue = [s for _,s in self.root.children]
-        print(f"Initial red set: {red},\nInitial blue set: {blue}")
+        if self.print_info:
+            print(f"Initial red set: {red},\nInitial blue set: {blue}")
         while blue:
             qb = min(blue)
             pred, father = self.find_transition_to(qb)
@@ -173,7 +175,8 @@ class SAI:
                     blue.remove(qb)
                     new_blue = [s for _,s in merged.children if s not in red and s not in blue]
                     blue.extend(new_blue)
-                    print(f"Merged {qb.prefix} into {r.prefix} to create {merged}")
+                    if self.print_info:
+                        print(f"Merged {qb.prefix} into {r.prefix} resulting in {merged.prefix}")
                     
                     break
                 else:
@@ -192,10 +195,12 @@ class SAI:
                     blue.remove(qb)
                     new_blue = [s for _,s in qb.children if s not in red and s not in blue]
                     blue.extend(new_blue)
-                    print(f"Colored {qb.prefix} red")
+                    if self.print_info:
+                        print(f"Colored {qb.prefix} red")
             if not became_red_flag:
                 #split so the new qb can become red
-                print(f"Trying to split node {qb.prefix} with father {father.prefix if father else None}")
+                if self.print_info:
+                    print(f"Trying to split node {qb.prefix} with father {father.prefix if father else None}")
                 split_pred = self._find_split_predicate(red, qb,father)
                 if split_pred is None:
                     raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
@@ -207,8 +212,10 @@ class SAI:
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
                     #TODO this is a hack
                 blue.extend(new_nodes)
-            print(f"\n\nRed: {red},\nBlue: {blue}")
-        print ("Final red set:", red)
+            if self.print_info:
+                print(f"\n\nRed: {red},\nBlue: {blue}")
+        if self.print_info:
+            print("Final red set:", red)
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
@@ -226,7 +233,6 @@ class SAI:
 
         # Need at least 2 distinct letters to create a non-trivial split.
         if len(relevant_letters) < 2:
-            print(f"Sample: {father.sample}")
             raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
 
         original_children = father.children.copy()
@@ -235,7 +241,8 @@ class SAI:
         # Try increasingly larger intervals: (-inf, letter[
         # Keep the largest consistent one; stop at first inconsistent.
         for letter in relevant_letters:
-            print(f"Trying split at {letter}")
+            if self.print_info:
+                print(f"Trying split at {letter} for node {node.prefix} with father {father.prefix}")
             candidate = IntervalPredicate(None, letter)
             try:
                 split_nodes = self.split_transition(node, father, candidate)
@@ -247,10 +254,9 @@ class SAI:
                 father.children = original_children.copy()
             if is_ok:
                 best_predicate = candidate
-            else:
-                print(f"Split at {letter} is not consistent with data")
         if best_predicate is None:
-            print("Relevant words:", relevant_words)
+            if self.print_info:
+                print("Relevant words:", relevant_words)
             raise ValueError(f"Could not find a split predicate for node with prefix {node.prefix} among candidates {relevant_letters}")
         return best_predicate
     def split_transition(self, node:SAINode, father:SAINode, split_predicate:Predicate):
@@ -284,12 +290,14 @@ class SAI:
         """
         for node in red:
             if node.accepting and node.rejecting:
-                print(f"node {node.prefix} inconsistent")
+                if self.print_info:
+                    print(f"node {node.prefix} inconsistent")
                 return False
             pos = {w for w, l in node.sample if l}
             neg = {w for w, l in node.sample if not l}
             if pos & neg:  # If there is any word label positively and negatively
-                print(pos&neg)
+                if self.print_info:
+                    print(pos&neg)
                 return False
         return True
     
