@@ -167,7 +167,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
 
                 # mark node as explored
                 explored.append(node)
-
+        print(f"WARNING No path found from state {origin_state.state_id} to state {target_state.state_id}. Returning None.")
         return None
     def find_distinguishing_seq(self, state1, state2):
         """
@@ -181,6 +181,10 @@ class Sfa(DeterministicAutomaton[SfaState]):
         Returns: an input sequence distinguishing two states, or None if the states are equivalent
 
         """
+        if state1 not in self.states or state2 not in self.states:
+            raise ValueError('One or both states not in automaton. Returning None.')
+        if state1 == state2:
+            return None
         visited = set()
         to_explore = [(state1, state2, [])]
         while to_explore:
@@ -264,12 +268,18 @@ class Sfa(DeterministicAutomaton[SfaState]):
     
     def __repr__(self):
         return self.to_state_setup()
+    
     def characteristic_sample(self) -> Set[Tuple[Tuple, bool]]:
         """
         Generate a characteristic sample for the SFA.
         For each pair of states, add two words with prefix leading to each of the states and a distinguishing suffix if they are not equivalent.
         For each transition add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
         """
+        def _extend_with_witness(prefix: Tuple, pred: Predicate) -> Tuple:
+            w = self.algebra.pick_witness(pred)
+            if w is None:
+                w = self.algebra.pick_witness(self.algebra.minimize_predicate(pred))
+            return prefix if w is None else prefix + (w,)
         def remove_none(word):
             if word is None or None in word:
                 return ()
@@ -308,8 +318,8 @@ class Sfa(DeterministicAutomaton[SfaState]):
             for pred, next_s in s.transitions:
                 if not self.algebra.is_satisfiable(pred):
                     continue
-                word = prefix + (self.algebra.pick_witness(pred),)
-                suffixes = [suffix_cache[(s, other_s)] for other_s in self.states if other_s != next_s]
+                word = _extend_with_witness(prefix, pred)
+                suffixes = [suffix_cache[(next_s, other_s)] for other_s in self.states if other_s != next_s]
                 for suffix in suffixes:
                     if suffix is None:
                         suffix = ()

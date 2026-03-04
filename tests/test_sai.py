@@ -6,7 +6,7 @@ import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
 
 def generate_sfa():
-    nb_states = np.random.randint(2, 10)
+    nb_states = np.random.randint(2, 50)
     states = []
     for i in range(nb_states):
         s = SfaState(i, is_accepting=np.random.choice([True, False])) 
@@ -49,6 +49,7 @@ for i in range(100):
         print(f"Learned SFA is not equivalent to original SFA \n Learned SFA: {learned_sfa} \n Original SFA: {sfa}")
         cex = learned_sfa.bisimilar(sfa, return_cex=True)
         print(f"Counterexample: {cex}, should be {'accepted' if sfa.accepts(cex) else 'rejected'}")
+        print(f"sample: {sample}")
         break
     #print("Learned sfa:", learned_sfa)
     #print("Original SFA:", sfa)
