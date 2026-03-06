@@ -6,11 +6,11 @@ from pathlib import Path
 from pydot import Dot, Node, Edge
 
 from aalpy.automata import Dfa, MooreMachine, Mdp, Onfsm, MealyState, DfaState, MooreState, MealyMachine, \
-    MdpState, StochasticMealyMachine, StochasticMealyState, OnfsmState, MarkovChain, McState, Sevpa, SevpaState, \
+    MdpState, Sfa, StochasticMealyMachine, StochasticMealyState, OnfsmState, MarkovChain, McState, Sevpa, SevpaState, \
     SevpaTransition, Vpa, VpaState, VpaTransition, NDMooreMachine, NDMooreState
 
 file_types = ['dot', 'png', 'svg', 'pdf', 'string']
-automaton_types = {Dfa: 'dfa', MealyMachine: 'mealy', MooreMachine: 'moore', Mdp: 'mdp',
+automaton_types = {Dfa: 'dfa', Sfa.Sfa: 'sfa', MealyMachine: 'mealy', MooreMachine: 'moore', Mdp: 'mdp',
                    StochasticMealyMachine: 'smm', Onfsm: 'onfsm', NDMooreMachine: 'ndmoore', MarkovChain: 'mc',
                    Sevpa: 'sevpa', Vpa: 'vpa'}
 
@@ -25,7 +25,7 @@ def _wrap_label(label):
 
 
 def _get_node(state, automaton_type):
-    if automaton_type == 'dfa':
+    if automaton_type == 'dfa' or automaton_type == 'sfa':
         if state.is_accepting:
             return Node(state.state_id, label=_wrap_label(state.state_id), shape='doublecircle')
         return Node(state.state_id, label=_wrap_label(state.state_id))
@@ -55,6 +55,11 @@ def _add_transition_to_graph(graph, state, automaton_type, display_same_state_tr
             if not display_same_state_trans and new_state.state_id == state.state_id:
                 continue
             graph.add_edge(Edge(state.state_id, new_state.state_id, label=_wrap_label(f'{i}')))
+    if automaton_type == 'sfa':
+        for pred, new_state in state.transitions:
+            if not display_same_state_trans and new_state.state_id == state.state_id:
+                continue
+            graph.add_edge(Edge(state.state_id, new_state.state_id, label=_wrap_label(f'{pred}')))
     if automaton_type == 'mealy':
         for i in state.transitions.keys():
             new_state = state.transitions[i]

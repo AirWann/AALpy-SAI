@@ -41,8 +41,8 @@ class Sfa(DeterministicAutomaton[SfaState]):
         self.algebra: BooleanAlgebra = algebra or IntervalAlgebra()
 
     def __str__(self):
-        return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'\n{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
-
+         return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'\n{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
+    
     def step(self, letter):
         """
         Args:
@@ -280,10 +280,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
             if w is None:
                 w = self.algebra.pick_witness(self.algebra.minimize_predicate(pred))
             return prefix if w is None else prefix + (w,)
-        def remove_none(word):
-            if word is None or None in word:
-                return ()
-            return word
+
         sample_no_label = set()
         #keep distinguishing seqs stored for all pairs of states to avoid recomputation 
         prefix_cache = {
@@ -318,14 +315,16 @@ class Sfa(DeterministicAutomaton[SfaState]):
             for pred, next_s in s.transitions:
                 if not self.algebra.is_satisfiable(pred):
                     continue
+                #word firing the transition
                 word = _extend_with_witness(prefix, pred)
+                #distinguish target state from other states
                 suffixes = [suffix_cache[(next_s, other_s)] for other_s in self.states if other_s != next_s]
                 for suffix in suffixes:
                     if suffix is None:
                         suffix = ()
                     sample_no_label.add((word + suffix))
         sample = set()
-        for word in {remove_none(w) for w in sample_no_label}:
+        for word in {w for w in sample_no_label if w is not None and None not in w}:
             sample.add((word, self.accepts(word)))
         return sample
 

@@ -4,12 +4,13 @@ from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
+from aalpy.utils import save_automaton_to_file, visualize_automaton
 
-def generate_sfa():
-    nb_states = np.random.randint(2, 50)
+def generate_sfa(max_states):
+    nb_states = np.random.randint(2, max_states)
     states = []
     for i in range(nb_states):
-        s = SfaState(i, is_accepting=np.random.choice([True, False])) 
+        s = SfaState(f"q{i}", is_accepting=np.random.choice([True, False])) 
         states.append(s)
     for i in range(nb_states):
         s = states[i]
@@ -26,21 +27,23 @@ def generate_sfa():
 
 
 
-for i in range(100):
-    np.random.seed(i)
+for i in range(1):
+    seed = 67 + i
+    np.random.seed(67)
     print("seed:", i)
-    sfa = generate_sfa()
+    sfa = generate_sfa(max_states=10)
     print(f"Original SFA has {len(sfa.states)} states")
+    visualize_automaton(sfa, path=f"original_sfa_{seed}")
     sample = sfa.characteristic_sample()
     print(f"Sample size: {len(sample)}")
     #print(f"Sample: {sample}, length: {len(sample)}")
-    #print("Original SFA:", sfa)*
+    #print("Original SFA:", sfa)
     start_time = time.time()
     sai = SAI(sample, algebra=IntervalAlgebra())
     learned_sfa = sai.run_SAI()
     end_time = time.time()
     print(f"Time to learn SFA: {end_time - start_time}")
-    
+    visualize_automaton(learned_sfa, path=f"learned_sfa_{seed}")
     for word,label in sample:
         if learned_sfa.accepts(word) != label:
             print(f"Counterexample found: {word} should be {'accepted' if label else 'rejected'}")
