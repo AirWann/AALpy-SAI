@@ -25,7 +25,7 @@ def generate_sfa(nb_states):
     return sfa
 
 
-def test_sai(nb_states=10,nb_runs=100,fixed_seed=None,visualize=False,print_info=False):
+def test_sai(nb_states=10,nb_runs=100,fixed_seed=None,visualize=False,print_info=False,return_raw=False):
     sample_sizes = np.zeros(nb_runs)
     run_times = np.zeros(nb_runs)
     for i in range(nb_runs):
@@ -69,48 +69,111 @@ def test_sai(nb_states=10,nb_runs=100,fixed_seed=None,visualize=False,print_info
     avg_time = float(np.mean(run_times))
     print(f"For automaton with {nb_states} states:")
     print(f"Average sample size: {avg_sample}, Average run time: {avg_time}")
+    if return_raw:
+        return avg_sample, avg_time, sample_sizes, run_times
     return avg_sample, avg_time
 
-def benchmark_and_plot(states_list, nb_runs=100, print_info=False, output_path="sai_benchmark.png"):
-    avg_samples = []
-    avg_times = []
+def benchmark_and_plot(
+    states_list,
+    nb_runs=100,
+    print_info=False,
+    output_path="sai_benchmark.png",
+    uncertainty="ci95",  # "ci95", "sem", or "std"
+):
+    avg_samples, avg_times = [], []
+    sample_err, time_err = [], []
+
+    all_sample_sizes = []
+    all_run_times = []
 
     for n in states_list:
-        avg_sample, avg_time = test_sai(
+        avg_sample, avg_time, samples_raw, times_raw = test_sai(
             nb_states=n,
-            nb_runs=nb_runs,
+            nb_runs=nb_runs if n < 50 else nb_runs // 2,
             visualize=False,
             print_info=print_info,
+            return_raw=True,
         )
         avg_samples.append(avg_sample)
         avg_times.append(avg_time)
+        all_sample_sizes.extend(samples_raw.tolist())
+        all_run_times.extend(times_raw.tolist())
+        s_std = float(np.std(samples_raw, ddof=1)) if len(samples_raw) > 1 else 0.0
+        t_std = float(np.std(times_raw, ddof=1)) if len(times_raw) > 1 else 0.0
+
+        if uncertainty == "std":
+            sample_err.append(s_std)
+            time_err.append(t_std)
+        else:
+            s_sem = s_std / np.sqrt(len(samples_raw)) if len(samples_raw) > 0 else 0.0
+            t_sem = t_std / np.sqrt(len(times_raw)) if len(times_raw) > 0 else 0.0
+            if uncertainty == "sem":
+                sample_err.append(s_sem)
+                time_err.append(t_sem)
+            else:  # ci95
+                sample_err.append(1.96 * s_sem)
+                time_err.append(1.96 * t_sem)
 
     fig, ax1 = plt.subplots(figsize=(8, 5))
 
     color1 = "tab:blue"
     ax1.set_xlabel("Number of states (nb_states)")
     ax1.set_ylabel("Average sample size", color=color1)
-    ax1.plot(states_list, avg_samples, marker="o", color=color1)
+    ax1.errorbar(
+        states_list, avg_samples, yerr=sample_err,
+        fmt="o--", color=color1, capsize=4, elinewidth=1
+    )
     ax1.tick_params(axis="y", labelcolor=color1)
 
     ax2 = ax1.twinx()
     color2 = "tab:red"
     ax2.set_ylabel("Average run time (s)", color=color2)
-    ax2.plot(states_list, avg_times, marker="s", linestyle="--", color=color2)
+    ax2.errorbar(
+        states_list, avg_times, yerr=time_err,
+        fmt="s-", color=color2, capsize=4, elinewidth=1
+    )
     ax2.tick_params(axis="y", labelcolor=color2)
 
-    plt.title(f"SAI performance vs nb_states ({nb_runs} runs)")
+    plt.title(f"SAI runtime/sample size vs nb_states ({uncertainty}, on {nb_runs} runs)")
     fig.tight_layout()
     plt.grid(True, axis="x", alpha=0.3)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Plot saved to: {output_path}")
+    plot_runtime_vs_sample_size(
+            all_sample_sizes,
+            all_run_times,
+            output_path=output_path.replace(".png", "_runtime_vs_sample.png"),
+        )
+def plot_runtime_vs_sample_size(
+    sample_sizes,
+    run_times,
+    output_path="sai_runtime_vs_sample.png",
+):
+    sample_sizes = np.asarray(sample_sizes, dtype=float)
+    run_times = np.asarray(run_times, dtype=float)
 
+    if len(sample_sizes) == 0:
+        print("No data to plot for runtime vs sample size.")
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.scatter(sample_sizes, run_times, alpha=0.6, s=24, color="tab:purple", label="Runs")
+    
+    ax.set_xlabel("Sample size")
+    ax.set_ylabel("Run time (s)")
+    ax.set_title("SAI run time vs sample size")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Runtime vs sample-size plot saved to: {output_path}")
 
 if __name__ == "__main__":
     benchmark_and_plot(
-        states_list=[2, 3, 4, 5, 6, 8, 10, 12, 14, 18, 22, 26, 30],
-        nb_runs=10,
+        states_list=[2, 3, 4, 6, 8, 10, 12, 15, 20, 30, 50],
+        nb_runs=40,
         print_info=False,
         output_path="sai_benchmark.png"
     )
