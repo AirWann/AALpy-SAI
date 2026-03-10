@@ -293,9 +293,15 @@ class IntervalAlgebra(BooleanAlgebra[int]):
     def pick_witness(self, predicate: 'IntervalPredicate') -> Optional[int]:
         if isinstance(predicate, IntervalPredicate):
             if not self.is_satisfiable(predicate):
+                print(f"Warning: trying to pick witness from unsatisfiable predicate {predicate}.")
                 return None
-            return predicate.lower if predicate.lower is not None else ((predicate.upper - 1) if predicate.upper is not None else 0)
-        # OR : witness from any satisfiable branch
+            if predicate.lower is not None:
+                return predicate.lower
+            elif predicate.upper is not None:
+                return predicate.upper - 1
+            else:
+                return 0
+          # OR : witness from any satisfiable branch
         elif isinstance(predicate, OrPredicate):
             for pred in predicate.predlist:
                 witness = self.pick_witness(pred)

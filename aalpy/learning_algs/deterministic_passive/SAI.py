@@ -103,16 +103,6 @@ def to_automaton(red: List[SAINode]) -> Sfa:
     if not red:
         raise ValueError("Empty node list given to to_automaton")
 
-    # ensure all nodes referenced by transitions are present
-    # node_set = set(red)
-    # queue = list(red)
-    # while queue:
-    #     n = queue.pop(0)
-    #     for _, child in n.children:
-    #         if child not in node_set:
-    #             node_set.add(child)
-    #             queue.append(child)
-    # nodes = list(node_set)
 
     # build states
     node_to_state = {}
@@ -180,6 +170,7 @@ class SAI:
                     
                     break
                 else:
+                    #undo merge
                     if father is not None:
                         father.children = old_father_children
                     for node, acc, rej, sample in reversed(undo_log):
@@ -204,6 +195,8 @@ class SAI:
                 split_pred = self._find_split_predicate(red, qb,father)
                 if split_pred is None:
                     raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
+                if self.print_info:
+                    print(f"Splitting on predicate {split_pred} for node {qb.prefix}")
                 new_nodes = self.split_transition(qb, father, split_pred)
                 blue.remove(qb)
                 #find prefixes of new nodes to label them correctly
@@ -212,10 +205,10 @@ class SAI:
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
                     #TODO this is a hack
                 blue.extend(new_nodes)
-            if self.print_info:
-                print(f"\n\nRed: {red},\nBlue: {blue}")
-        if self.print_info:
-            print("Final red set:", red)
+        #     if self.print_info:
+        #         print(f"\n\nRed: {red},\nBlue: {blue}")
+        # if self.print_info:
+        #     print("Final red set:", red)
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
@@ -241,8 +234,7 @@ class SAI:
         # Try increasingly larger intervals: (-inf, letter[
         # Keep the largest consistent one; stop at first inconsistent.
         for letter in relevant_letters:
-            if self.print_info:
-                print(f"Trying split at {letter} for node {node.prefix} with father {father.prefix}")
+            
             candidate = IntervalPredicate(None, letter)
             try:
                 split_nodes = self.split_transition(node, father, candidate)
@@ -363,7 +355,8 @@ class SAI:
         
     def find_transition_to(self, target: SAINode, current: SAINode=None, visited=None):
         """
-        Find a transition to "target" in the graph
+        Find a transition to "target" in the graph (classical BFS). 
+        Returns the predicate and father node if found, raises ValueError otherwise.
         """
         top_level = current is None
         if current is None:
@@ -378,8 +371,6 @@ class SAI:
         for pred, child in current.children:
             if child == target:
                 return pred, current
-
-        for _, child in current.children:
             res = self.find_transition_to(target, child, visited)
             if res is not None:
                 return res

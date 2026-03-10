@@ -1,7 +1,5 @@
 from typing import List, Set, Tuple, Dict
 
-from matplotlib.pylab import sample
-
 from aalpy.base import AutomatonState, DeterministicAutomaton
 from aalpy.base.Automaton import InputType
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
@@ -152,7 +150,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
             path = queue.pop(0)
             node = path[-1]
             if node not in explored:
-                neighbours = [t[1] for t in node.transitions]
+                neighbours = [t[1] for t in node.transitions if self.algebra.is_satisfiable(t[0])]
                 for neighbour in neighbours:
                     new_path = list(path)
                     new_path.append(neighbour)
@@ -162,12 +160,17 @@ class Sfa(DeterministicAutomaton[SfaState]):
                         acc_seq = new_path[:-1]
                         inputs = []
                         for ind, state in enumerate(acc_seq):
-                            inputs.append(self.algebra.pick_witness(next(pred for pred, tgt in state.transitions if tgt == new_path[ind + 1])))
+                            preds = [pred for pred, tgt in state.transitions if tgt == new_path[ind + 1] and self.algebra.is_satisfiable(pred)]
+                            if preds:
+                                inputs.append(self.algebra.pick_witness(preds[0]))
+                            else:
+                                print(f"WARNING: no transition from state {state.state_id} to state {new_path[ind + 1].state_id} found during path reconstruction. Returning None.")
+                                return None
                         return tuple(inputs)
 
                 # mark node as explored
                 explored.append(node)
-        print(f"WARNING No path found from state {origin_state.state_id} to state {target_state.state_id}. Returning None.")
+        #print(f"WARNING: No path found from state {origin_state.state_id} to state {target_state.state_id}. Returning None.")
         return None
     def find_distinguishing_seq(self, state1, state2):
         """
@@ -182,7 +185,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
 
         """
         if state1 not in self.states or state2 not in self.states:
-            raise ValueError('One or both states not in automaton. Returning None.')
+            raise ValueError('One or both states not in automaton.')
         if state1 == state2:
             return None
         visited = set()
@@ -197,7 +200,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
                     and_pred = self.algebra.and_op(pred1, pred2)
                     if self.algebra.is_satisfiable(and_pred):
                         if (next_s1, next_s2) not in visited:
-                            to_explore.append((next_s1, next_s2, prefix + [self.algebra.pick_witness(and_pred)]))
+                            to_explore.append(
+                                (next_s1, next_s2, prefix + [self.algebra.pick_witness(and_pred)])
+                                )
         return None
     
     def is_input_complete(self) -> bool:
@@ -273,26 +278,35 @@ class Sfa(DeterministicAutomaton[SfaState]):
         """
         Generate a characteristic sample for the SFA.
         For each pair of states, add two words with prefix leading to each of the states and a distinguishing suffix if they are not equivalent.
-        For each transition add a word with prefix leading to the source state, a letter firing the transition, duplicate with distinguishing suffixes to every other state.
+        For each transition add a word with prefix leading to the source state, a letter firing the transition, 
+        duplicate with distinguishing suffixes to every other state.
         """
         def _extend_with_witness(prefix: Tuple, pred: Predicate) -> Tuple:
             w = self.algebra.pick_witness(pred)
-            if w is None:
-                w = self.algebra.pick_witness(self.algebra.minimize_predicate(pred))
             return prefix if w is None else prefix + (w,)
 
         sample_no_label = set()
         #keep distinguishing seqs stored for all pairs of states to avoid recomputation 
-        prefix_cache = {
-            s: (self.get_shortest_path(self.initial_state, s) or ())
-            for s in self.states
-        }
+        prefix_cache = {}
+        for s in self.states:
+            path = self.get_shortest_path(self.initial_state, s)
+            if path is not None:
+                prefix_cache[s] = path
+            else:
+                prefix_cache[s] = ()
+        
 
         suffix_cache = {}
         for s1 in self.states:
             for s2 in self.states:
-                suffix_cache[(s1, s2)] = self.find_distinguishing_seq(s1, s2) or ()
-
+                distinguish = self.find_distinguishing_seq(s1, s2)
+                if distinguish is not None:
+                    suffix_cache[(s1, s2)] = distinguish
+                else:
+                    if s1 != s2:
+                        pass
+                        #print(f"WARNING: states {s1.state_id} and {s2.state_id} are not distinguishable")
+                    suffix_cache[(s1, s2)] = ()
         #distinguish pairs of states
         for s1 in self.states:
             for s2 in self.states:
@@ -339,7 +353,8 @@ class Sfa(DeterministicAutomaton[SfaState]):
 #         0: (True, [(IntervalPredicate(0, 10), 1), (IntervalPredicate(11, 20), 0)]),
 #         1: (False, [(IntervalPredicate(0, 10), 0), (IntervalPredicate(11, 20), 1)])
 #     }, algebra=alg)
-# print(testautomaton.execute_sequence(testautomaton.initial_state, [5, 7, 15, 3, 12]))  
+# new = Sfa.from_state_setup(testautomaton.to_state_setup(), algebra=alg)
+
 # print(testautomaton.get_shortest_path(testautomaton.initial_state, testautomaton.states[1]))
 # print( [state.prefix for state in testautomaton.states])
 # print(testautomaton.characteristic_sample())
