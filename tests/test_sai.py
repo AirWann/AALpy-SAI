@@ -145,10 +145,17 @@ def benchmark_and_plot(
             all_run_times,
             output_path=output_path.replace(".png", "_runtime_vs_sample.png"),
         )
+    plot_runtime_vs_sample_size(
+            all_sample_sizes,
+            all_run_times,
+            output_path=output_path.replace(".png", "_runtime_vs_sample_loglog.png"),
+            log_scale=True
+        )
 def plot_runtime_vs_sample_size(
     sample_sizes,
     run_times,
     output_path="sai_runtime_vs_sample.png",
+    log_scale=False
 ):
     sample_sizes = np.asarray(sample_sizes, dtype=float)
     run_times = np.asarray(run_times, dtype=float)
@@ -159,10 +166,12 @@ def plot_runtime_vs_sample_size(
 
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.scatter(sample_sizes, run_times, alpha=0.6, s=24, color="tab:purple", label="Runs")
-    
+    if log_scale:
+        ax.set_xscale("log")
+        ax.set_yscale("log")
     ax.set_xlabel("Sample size")
     ax.set_ylabel("Run time (s)")
-    ax.set_title("SAI run time vs sample size")
+    ax.set_title("SAI run time vs sample size"+ (" (log-log)" if log_scale else ""))
     ax.grid(True, alpha=0.25)
     ax.legend(loc="best")
     fig.tight_layout()
