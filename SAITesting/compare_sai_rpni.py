@@ -5,9 +5,9 @@ from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from aalpy.automata import Dfa, DfaState
 from aalpy.learning_algs import run_RPNI
-from aalpy.SAITesting.test_sai import generate_sfa
+from test_sai import generate_sfa
 import time
-
+import pickle
 def sfa_to_dfa(sfa: Sfa) -> Dfa:
     """
     Transform an SFA into a Dfa using the lower bounds of the Intervals as input symbols.
@@ -45,6 +45,10 @@ def dfa_to_sfa(dfa: Dfa, algebra: BooleanAlgebra) -> Sfa:
         for i, input_symbol in enumerate(sorted_inputs):
             next_input_symbol = sorted_inputs[i + 1] if i + 1 < len(sorted_inputs) else None
             target_dfa_state = dfa_state.transitions[input_symbol]
+            if i == 0 and input_symbol is not None:
+                # add transition for (-inf, first_input)
+                predicate = IntervalPredicate(None, next_input_symbol)
+                sfa_state.transitions.append((predicate, state_mapping[target_dfa_state]))
             predicate = IntervalPredicate(input_symbol, next_input_symbol)
             sfa_state.transitions.append((predicate, state_mapping[target_dfa_state]))
 
@@ -52,12 +56,21 @@ def dfa_to_sfa(dfa: Dfa, algebra: BooleanAlgebra) -> Sfa:
 
 alg = IntervalAlgebra()
 
-testautomaton = Sfa.from_state_setup(
-    {
-        "s0": (True, [(IntervalPredicate(None, 10), "s1"), (IntervalPredicate(11, 20), "s0")]),
-        "s1": (False, [(IntervalPredicate(0, 15), "s0"), (IntervalPredicate(15, 20), "s1")])
-    }, algebra=alg)
-dfa = sfa_to_dfa(testautomaton)
-print(dfa)
-reconstructed_sfa = dfa_to_sfa(dfa, algebra=alg)
-print(reconstructed_sfa)
+for i in range(50):
+    testautomaton = generate_sfa(3)
+    sample = testautomaton.characteristic_sample()
+    learned_dfa = run_RPNI(list(sample), 'dfa', 'classic',print_info=False)
+    generalized_sfa = dfa_to_sfa(learned_dfa, alg)
+    if not testautomaton.bisimilar(generalized_sfa):
+        print("Learned SFA is not bisimilar to the original SFA")
+        visualize_automaton(testautomaton, path="./SAITesting/test_automaton")
+        visualize_automaton(generalized_sfa, path="./SAITesting/learned_automaton")
+        print(learned_dfa)
+        pickle.dump(testautomaton, open("./SAITesting/test_automaton.pkl", "wb"))
+        break
+    # else:
+    #     print("Learned SFA is bisimilar to the original SFA")
+    #     print("Test automaton:")
+    #     print(testautomaton)
+    #     print("Learned DFA:")
+    #     print(generalized_sfa)
