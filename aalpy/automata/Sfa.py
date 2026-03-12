@@ -243,7 +243,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
             state_setup[s.state_id] = (s.is_accepting, transitions)
         return state_setup
     @staticmethod
-    def from_state_setup(state_setup: Dict[int, Tuple[bool, List[Tuple[Predicate, int]]]],
+    def from_state_setup(state_setup: Dict[str, Tuple[bool, List[Tuple[Predicate, str]]]],
                          algebra: BooleanAlgebra) -> 'Sfa':
         """
         Build an SFA from:
@@ -254,8 +254,8 @@ class Sfa(DeterministicAutomaton[SfaState]):
         First state in the state setup is the initial state.
         """
         # build states
-        states_dict: Dict[int, SfaState] = {state_id: SfaState(state_id, is_acc) for state_id, (is_acc, _) in state_setup.items()}
-
+        
+        states_dict = {key: SfaState(key, val[0]) for key, val in state_setup.items()}
         # add transitions
         for state_id, (_, transitions) in state_setup.items():
             s = states_dict[state_id]

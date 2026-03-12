@@ -378,7 +378,6 @@ class SAI:
             raise ValueError(f"Transition to target node {target} not found")
         return None
 
-#(ε, −), (0, +), (100, −), (0 · 0, −),(0 · 100, +)
 #should learn automaton recognizing words with odd numbers of letters below 100
 # sample = {
 #     ((), False),

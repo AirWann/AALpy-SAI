@@ -26,20 +26,26 @@ def generate_sfa(nb_states):
     return sfa
 
 
-def test_sai_characteristic(nb_states=10,nb_runs=100,fixed_seed=None,visualize=False,print_info=False,return_raw=False):
+def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=False,print_info=False,return_raw=False):
     sample_sizes = np.zeros(nb_runs)
     sample_true_sizes = np.zeros(nb_runs)
     run_times = np.zeros(nb_runs)
+    time_to_generate = np.zeros(nb_runs)
+    time_to_sample = np.zeros(nb_runs)
     for i in range(nb_runs):
         if fixed_seed is not None:
             seed = i+fixed_seed
             np.random.seed(seed)
             if print_info:
                 print("seed:", seed)
+        start_time = time.time()
         sfa = generate_sfa(nb_states)
+        time_to_generate = time.time() - start_time
         if visualize:
             visualize_automaton(sfa, path=f"original_sfa_{seed}_{nb_states}")
+        start_time = time.time()
         sample = sfa.characteristic_sample()
+        time_to_sample = time.time() - start_time
         sample_sizes[i] = len(sample)
         sample_true_sizes[i] = sum(len(word) for word, _ in sample)
         #print(f"Sample: {sample}, length: {len(sample)}")
@@ -55,7 +61,8 @@ def test_sai_characteristic(nb_states=10,nb_runs=100,fixed_seed=None,visualize=F
         for word,label in sample:
             if learned_sfa.accepts(word) != label:
                 print(f"Counterexample found: {word} should be {'accepted' if label else 'rejected'}")
-                break
+                assert False, "Learned SFA does not match sample"
+                
         if not learned_sfa.bisimilar(sfa):
             print(f"Learned SFA is not equivalent to original SFA \n Learned SFA: {learned_sfa} \n Original SFA: {sfa}")
             cex = learned_sfa.bisimilar(sfa, return_cex=True)
@@ -64,15 +71,19 @@ def test_sai_characteristic(nb_states=10,nb_runs=100,fixed_seed=None,visualize=F
             visualize_automaton(sfa, path=f"original_sfa_{nb_states}_counterexample")
             print("sample:", sample)
             print("setup of original", sfa.to_state_setup())
-            break
+            assert False, "Learned SFA is not equivalent to original SFA"
+            
         #print("Learned sfa:", learned_sfa)
         #print("Original SFA:", sfa)
         #print("\n\n")
     avg_sample = float(np.mean(sample_sizes))
     avg_time = float(np.mean(run_times))
     avg_sample_true = float(np.mean(sample_true_sizes))
+    avg_time_to_generate = float(np.mean(time_to_generate))
+    avg_time_to_sample = float(np.mean(time_to_sample))
     print(f"For automaton with {nb_states} states:")
     print(f"Average sample size: {avg_sample}, Average run time: {avg_time}, Average true sample size: {avg_sample_true}")
+    print(f"Average time to generate: {avg_time_to_generate}, Average time to sample: {avg_time_to_sample}")
     if return_raw:
         return avg_sample, avg_time, avg_sample_true, sample_sizes, run_times, sample_true_sizes
     return avg_sample, avg_time, avg_sample_true
@@ -317,7 +328,7 @@ def plot_runtime_vs_sample_size(
                 bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.85),
             )
 
-            print(f"log-log linear fit: log10(t) = {k:.4f}*log10(n) + {b:.4f}  (R²={r2:.4f})")
+            print(f"log-log linear fit: t ≈ {C:.2e}·n^{k:.2f}  (R² = {r2:.3f})")
 
     ax.set_xlabel("Sample size (#words)")
     ax.set_ylabel("Run time (s)")
@@ -331,8 +342,8 @@ def plot_runtime_vs_sample_size(
 
 if __name__ == "__main__":
     benchmark_and_plot(
-        states_list=[5, 10, 15, 20, 30, 50, 75, 100, 150],
-        nb_runs=20,
+        states_list=[10, 15, 20, 30, 50],
+        nb_runs=10,
         print_info=False,
         write_csv=False,
         output_prefix="sai_benchmark"
