@@ -1,3 +1,4 @@
+import os
 import time
 import csv
 import matplotlib.pyplot as plt
@@ -6,6 +7,30 @@ from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgeb
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
+from wakepy import keep
+from pickle import dump, load
+
+def save_raw_benchmark_data(output_prefix, records):
+    if not records:
+        return
+
+    csv_path = f"{output_prefix}_raw_runs.csv"
+    file_exists = os.path.exists(csv_path)
+    is_empty = (not file_exists) or os.path.getsize(csv_path) == 0
+
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["nb_states", "run_idx", "sample_size_words", "sample_true_size_letters", "runtime_s"],
+        )
+        if is_empty:
+            writer.writeheader()
+        writer.writerows(records)
+        f.flush()
+        os.fsync(f.fileno())  
+
+    print(f"Appended {len(records)} rows to: {csv_path}")
+
 
 def generate_sfa(nb_states):
     states = []
@@ -26,7 +51,7 @@ def generate_sfa(nb_states):
     return sfa
 
 
-def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=False,print_info=False,return_raw=False):
+def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=False,print_info=False,csv_file=None):
     sample_sizes = np.zeros(nb_runs)
     sample_true_sizes = np.zeros(nb_runs)
     run_times = np.zeros(nb_runs)
@@ -40,12 +65,15 @@ def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=Fa
                 print("seed:", seed)
         start_time = time.time()
         sfa = generate_sfa(nb_states)
-        time_to_generate = time.time() - start_time
+        time_to_generate[i] = time.time() - start_time
         if visualize:
-            visualize_automaton(sfa, path=f"original_sfa_{seed}_{nb_states}")
+            if fixed_seed is not None:
+                visualize_automaton(sfa, path=f"original_sfa_{seed}_{nb_states}")
+            else:
+                visualize_automaton(sfa, path=f"original_sfa_{nb_states}")
         start_time = time.time()
         sample = sfa.characteristic_sample()
-        time_to_sample = time.time() - start_time
+        time_to_sample[i] = time.time() - start_time
         sample_sizes[i] = len(sample)
         sample_true_sizes[i] = sum(len(word) for word, _ in sample)
         #print(f"Sample: {sample}, length: {len(sample)}")
@@ -56,8 +84,21 @@ def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=Fa
         learned_sfa = sai.run_SAI()
 
         run_times[i] = time.time() - start_time
+        if csv_file is not None:
+            save_raw_benchmark_data(
+                csv_file,
+                [{
+                    "nb_states": nb_states,
+                    "run_idx": i+1,
+                    "sample_size_words": int(sample_sizes[i]),
+                    "sample_true_size_letters": int(sample_true_sizes[i]),
+                    "runtime_s": float(run_times[i]),
+                }], )
         if visualize:     
-            visualize_automaton(learned_sfa, path=f"learned_sfa_{seed}_{nb_states}")
+            if fixed_seed is not None:
+                visualize_automaton(learned_sfa, path=f"learned_sfa_{seed}_{nb_states}")
+            else:
+                visualize_automaton(learned_sfa, path=f"learned_sfa_{nb_states}")
         for word,label in sample:
             if learned_sfa.accepts(word) != label:
                 print(f"Counterexample found: {word} should be {'accepted' if label else 'rejected'}")
@@ -70,7 +111,8 @@ def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=Fa
             visualize_automaton(learned_sfa, path=f"learned_sfa_{nb_states}_counterexample")
             visualize_automaton(sfa, path=f"original_sfa_{nb_states}_counterexample")
             print("sample:", sample)
-            print("setup of original", sfa.to_state_setup())
+            with open(f"original_sfa_{nb_states}_dump.pkl", "wb") as f:
+                dump(sfa, f)
             assert False, "Learned SFA is not equivalent to original SFA"
             
         #print("Learned sfa:", learned_sfa)
@@ -81,24 +123,14 @@ def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=Fa
     avg_sample_true = float(np.mean(sample_true_sizes))
     avg_time_to_generate = float(np.mean(time_to_generate))
     avg_time_to_sample = float(np.mean(time_to_sample))
+    print("\n" + "-"*20)
     print(f"For automaton with {nb_states} states:")
     print(f"Average sample size: {avg_sample}, Average run time: {avg_time}, Average true sample size: {avg_sample_true}")
     print(f"Average time to generate: {avg_time_to_generate}, Average time to sample: {avg_time_to_sample}")
-    if return_raw:
-        return avg_sample, avg_time, avg_sample_true, sample_sizes, run_times, sample_true_sizes
-    return avg_sample, avg_time, avg_sample_true
+    return avg_sample, avg_time, avg_sample_true, sample_sizes, run_times, sample_true_sizes
+    
 
-def save_raw_benchmark_data(output_prefix, records):
-    csv_path = f"{output_prefix}_raw_runs.csv"
 
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["nb_states", "run_idx", "sample_size_words", "sample_true_size_letters", "runtime_s"],
-        )
-        writer.writeheader()
-        writer.writerows(records)
-    print(f"Raw benchmark data saved to: {csv_path}")
 
 def benchmark_and_plot(
     states_list,
@@ -113,16 +145,16 @@ def benchmark_and_plot(
 
     all_sample_sizes = []
     all_run_times = []
-    if write_csv:
-        raw_records = []
+    done_sizes = []
 
     for n in states_list:
+        done_sizes.append(n)
         avg_sample, avg_time, avg_sample_true, samples_raw, times_raw, sample_true_sizes = test_sai_characteristic(
             nb_states=n,
             nb_runs=nb_runs, # if n < 40 else nb_runs // 2,
             visualize=False,
             print_info=print_info,
-            return_raw=True,
+            csv_file=output_prefix if write_csv else None,
         )
 
         avg_samples.append(avg_sample)
@@ -154,49 +186,36 @@ def benchmark_and_plot(
                 sample_true_err.append(1.96 * st_sem)
                 time_err.append(1.96 * t_sem)
 
-    if write_csv:
-        for run_idx, (sw, sl, rt) in enumerate(
-            zip(samples_raw.tolist(), sample_true_sizes.tolist(), times_raw.tolist()), start=1
-        ):
-            raw_records.append(
-                {
-                    "nb_states": n,
-                    "run_idx": run_idx,
-                    "sample_size_words": sw,
-                    "sample_true_size_letters": sl,
-                    "runtime_s": rt,
-                }
-            )
-        save_raw_benchmark_data(output_prefix, raw_records)
-    # 1) sample size + sample true size vs states
-    plot_samples_vs_states(
-        states_list=states_list,
-        avg_samples=avg_samples,
-        avg_samples_true=avg_samples_true,
-        sample_err=sample_err,
-        sample_true_err=sample_true_err,
-        output_path=f"{output_prefix}_samples_vs_states.png",
-        uncertainty=uncertainty,
-        nb_runs=nb_runs,
-    )
+       
+        # 1) sample size + sample true size vs states
+        plot_samples_vs_states(
+            states_list=done_sizes,
+            avg_samples=avg_samples,
+            avg_samples_true=avg_samples_true,
+            sample_err=sample_err,
+            sample_true_err=sample_true_err,
+            output_path=f"{output_prefix}_samples_vs_states.png",
+            uncertainty=uncertainty,
+            nb_runs=nb_runs,
+        )
 
-    # 2) runtime vs states
-    plot_runtime_vs_states(
-        states_list=states_list,
-        avg_times=avg_times,
-        time_err=time_err,
-        output_path=f"{output_prefix}_runtime_vs_states.png",
-        uncertainty=uncertainty,
-        nb_runs=nb_runs,
-    )
+        # 2) runtime vs states
+        plot_runtime_vs_states(
+            states_list=done_sizes,
+            avg_times=avg_times,
+            time_err=time_err,
+            output_path=f"{output_prefix}_runtime_vs_states.png",
+            uncertainty=uncertainty,
+            nb_runs=nb_runs,
+        )
 
-    # 3) runtime vs sample size
-    plot_runtime_vs_sample_size(
-        sample_sizes=all_sample_sizes,
-        run_times=all_run_times,
-        output_path=f"{output_prefix}_runtime_vs_sample.png",
-        log_scale=True,
-    )
+        # 3) runtime vs sample size
+        plot_runtime_vs_sample_size(
+            sample_sizes=all_sample_sizes,
+            run_times=all_run_times,
+            output_path=f"{output_prefix}_runtime_vs_sample.png",
+            log_scale=True,
+        )
 
 
 def plot_samples_vs_states(
@@ -341,10 +360,11 @@ def plot_runtime_vs_sample_size(
     print(f"Plot saved to: {output_path}")
 
 if __name__ == "__main__":
-    benchmark_and_plot(
-        states_list=[10, 15, 20, 30, 50],
-        nb_runs=10,
-        print_info=False,
-        write_csv=False,
-        output_prefix="sai_benchmark"
-    )
+    with keep.running():
+        benchmark_and_plot(
+            states_list=[5, 10, 20, 50, 100, 150, 200, 250, 500, 750, 1000, 1500, 2000],
+            nb_runs=30,
+            print_info=False,
+            write_csv=True,
+            output_prefix=f"sai_benchmark_{time.strftime('%Y%m%d_%H%M%S')}",
+        )

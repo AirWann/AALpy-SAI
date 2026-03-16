@@ -149,6 +149,7 @@ class SAI:
             assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
             became_red_flag = False
             red_save = red.copy()
+            # Try merging with red states
             for r in red:
                #try merges and check consistency with data 
                 if r.accepting and qb.rejecting or r.rejecting and qb.accepting:
@@ -157,7 +158,7 @@ class SAI:
                 merged, undo_log, old_father_children = self.merge(
                     r, qb.shallow_copy(), father, with_undo=True
                 )
-                if self.is_consistent(red + [merged]):
+                if self.is_consistent([merged]):
                     #merge is accepted
                     became_red_flag = True
                     if merged not in red:
@@ -177,9 +178,9 @@ class SAI:
                         node.accepting = acc
                         node.rejecting = rej
                         node.sample = sample
+            #try coloring red if consistent with data
             if not became_red_flag:
-                #try coloring red if consistent with data
-                if self.is_consistent(red + [qb]):
+                if self.is_consistent([qb]):
                     became_red_flag = True
                     if qb not in red:
                         red.append(qb)
@@ -209,6 +210,8 @@ class SAI:
         #         print(f"\n\nRed: {red},\nBlue: {blue}")
         # if self.print_info:
         #     print("Final red set:", red)
+        if not self.is_consistent(red):
+            raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
@@ -238,7 +241,7 @@ class SAI:
             candidate = IntervalPredicate(None, letter)
             try:
                 split_nodes = self.split_transition(node, father, candidate)
-                is_ok = self.is_consistent(red + [split_nodes[0]])
+                is_ok = self.is_consistent([split_nodes[0]])
             except AssertionError:
                 is_ok = False
             finally:
@@ -278,7 +281,7 @@ class SAI:
 
     def is_consistent(self,red:List[SAINode]):
         """
-        Check if the current automaton is consistent with the data.
+        Check if the given list of red states is consistent with the data.
         """
         for node in red:
             if node.accepting and node.rejecting:
