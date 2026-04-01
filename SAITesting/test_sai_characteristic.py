@@ -40,7 +40,7 @@ def generate_sfa(nb_states):
     for i in range(nb_states):
         s = states[i]
         nb_trans = np.random.randint(nb_states//4, nb_states)
-        bounds = sorted(np.random.choice(range(0, nb_trans*200), max(0, nb_trans-1)))
+        bounds = sorted(np.random.choice(range(0, nb_trans*200), max(0, nb_trans-1), replace=False))
         bounds.append(None)
         for i, b in enumerate(bounds):
             pred = IntervalPredicate(int(bounds[i-1]) if i > 0 else None, int(b) if b is not None else None)
@@ -359,12 +359,49 @@ def plot_runtime_vs_sample_size(
     plt.close(fig)
     print(f"Plot saved to: {output_path}")
 
+def modify_sample(sample, automaton, modification_rate=0.1):
+    biggest_letter = max((letter for word, _ in sample for letter in word), default=0)
+    longest_word_length = max((len(word) for word, _ in sample), default=0)
+    modified_sample = sample.copy()
+    cpt = 0
+    for word, _ in sample:
+        if np.random.rand() < modification_rate:
+            # Modify the word by randomly changing one letter
+            if len(word) > 0:
+                idx_to_modify = np.random.randint(len(word))
+                new_letter = word[idx_to_modify] + np.random.randint(-biggest_letter//2, biggest_letter//2 + 1)  # Change the letter by -1 or +1
+                modified_word = word[:idx_to_modify] + (new_letter,) + word[idx_to_modify+1:]
+                new_label = automaton.accepts(modified_word)
+                modified_sample.add((modified_word, new_label))
+                cpt += 1
+        if np.random.rand() < modification_rate:
+            # Add a new random word to the sample
+            new_word_length = np.random.randint(1, int(longest_word_length*1.5) + 1)  # New word length between 1 and longest_word_length + 1
+            new_word = tuple(np.random.randint(1, int(biggest_letter*1.2)+2, size=new_word_length))
+            new_label = automaton.accepts(new_word)
+            modified_sample.add((new_word, new_label))
+            cpt += 1
+    return modified_sample,cpt 
+
+
 if __name__ == "__main__":
-    with keep.running():
-        benchmark_and_plot(
-            states_list=[5, 10, 20, 50, 100, 150, 200, 250, 500, 750, 1000, 1500, 2000],
-            nb_runs=30,
-            print_info=False,
-            write_csv=True,
-            output_prefix=f"sai_benchmark_{time.strftime('%Y%m%d_%H%M%S')}",
-        )
+    for i in range(50):
+        test_automaton = generate_sfa(i//2 + 2)
+        #test_automaton = load(open("./SAITesting/test_automaton2.pkl", "rb"))
+        sample = test_automaton.characteristic_sample()
+        modified_sample,cpt = modify_sample(sample, test_automaton, modification_rate=0.5)
+        # print("Original sample:")
+        # print(sample)
+        # print("\nModified sample:")
+        # print(modified_sample)
+        learned_sfa = SAI(modified_sample, algebra=IntervalAlgebra(), print_info=False).run_SAI()
+        if not learned_sfa.bisimilar(test_automaton):
+            print("Learned SFA is not bisimilar to the original SFA after modification")
+            visualize_automaton(test_automaton, path="./SAITesting/test_automaton_modified_sample")
+            visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_modified_sample")
+            print("Original SFA:", test_automaton)
+            print("Learned SFA:", learned_sfa)
+            break
+        else:
+            print(f"{i}th Learned SFA is bisimilar to the original SFA even after {cpt} added words to a {len(sample)}-word sample ")
+            

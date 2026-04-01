@@ -158,7 +158,7 @@ class SAI:
                 merged, undo_log, old_father_children = self.merge(
                     r, qb.shallow_copy(), father, with_undo=True
                 )
-                if self.is_consistent([merged]):
+                if self.is_consistent(red+[merged]):
                     #merge is accepted
                     became_red_flag = True
                     if merged not in red:
@@ -180,7 +180,7 @@ class SAI:
                         node.sample = sample
             #try coloring red if consistent with data
             if not became_red_flag:
-                if self.is_consistent([qb]):
+                if self.is_consistent(red+[qb]):
                     became_red_flag = True
                     if qb not in red:
                         red.append(qb)
@@ -206,10 +206,7 @@ class SAI:
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
                     #TODO this is a hack
                 blue.extend(new_nodes)
-        #     if self.print_info:
-        #         print(f"\n\nRed: {red},\nBlue: {blue}")
-        # if self.print_info:
-        #     print("Final red set:", red)
+        
         if not self.is_consistent(red):
             raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
         return to_automaton(red)

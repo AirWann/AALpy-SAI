@@ -43,6 +43,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
     def __eq__(self, other):
         """ this is just a bisimilarity check, not a structural equality check """
         return self.bisimilar(other)
+    def __reduce__(self):
+    # Preserve both structure and algebra when pickling.
+        return self.from_state_setup, (self.to_state_setup(), self.algebra)
     def step(self, letter):
         """
         Args:

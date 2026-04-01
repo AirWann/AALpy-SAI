@@ -5,9 +5,10 @@ from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from aalpy.automata import Dfa, DfaState
 from aalpy.learning_algs import run_RPNI
-from test_sai import generate_sfa
+from test_sai_characteristic import generate_sfa
 import time
 import pickle
+alg = IntervalAlgebra()
 def sfa_to_dfa(sfa: Sfa) -> Dfa:
     """
     Transform an SFA into a Dfa using the lower bounds of the Intervals as input symbols.
@@ -21,7 +22,7 @@ def sfa_to_dfa(sfa: Sfa) -> Dfa:
         dfa_state = state_mapping[sfa_state]
         for predicate, target_sfa_state in sfa_state.transitions:
             assert isinstance(predicate, IntervalPredicate), "Expected Interval in SFA transitions"
-            dfa_state.transitions[predicate.lower] = state_mapping[target_sfa_state]
+            dfa_state.transitions[alg.pick_witness(predicate)] = state_mapping[target_sfa_state]
 
 
     return Dfa(state_mapping[sfa.initial_state], list(state_mapping.values()))
@@ -49,28 +50,65 @@ def dfa_to_sfa(dfa: Dfa, algebra: BooleanAlgebra) -> Sfa:
                 # add transition for (-inf, first_input)
                 predicate = IntervalPredicate(None, next_input_symbol)
                 sfa_state.transitions.append((predicate, state_mapping[target_dfa_state]))
+                continue
             predicate = IntervalPredicate(input_symbol, next_input_symbol)
             sfa_state.transitions.append((predicate, state_mapping[target_dfa_state]))
 
     return Sfa(state_mapping[dfa.initial_state], list(state_mapping.values()), algebra=algebra)
 
 alg = IntervalAlgebra()
+def test_sai_rpni(pickled=None):
+    if pickled is not None:
+        testautomaton = pickle.load(open(pickled, "rb"))
+        sample = testautomaton.characteristic_sample()
+        dfa = sfa_to_dfa(testautomaton)
+        print(dfa)
+        sample_dfa = dfa.compute_characterization_set()
+        print("Sample:")
+        print(sample)
+        print("Sample DFA:")
+        print(sample_dfa)
+        learned_dfa = run_RPNI(list(sample), 'dfa', 'classic',print_info=False)
+        generalized_sfa = dfa_to_sfa(learned_dfa, alg)
+        if not testautomaton.bisimilar(generalized_sfa):
+            print("Learned SFA is not bisimilar to the original SFA")
+            visualize_automaton(testautomaton, path="./SAITesting/test_automaton")
+            visualize_automaton(generalized_sfa, path="./SAITesting/learned_automaton")
+            print(learned_dfa)
+        else:
+            print("Learned SFA is bisimilar to the original SFA")
+            print("Test automaton:")
+            print(testautomaton)
+            print("Learned DFA:")
+            print(generalized_sfa)
+        return
+    else:
+        for i in range(50):
+            testautomaton = generate_sfa(3)
+            sample = testautomaton.characteristic_sample()
+            learned_dfa = run_RPNI(list(sample), 'dfa', 'classic',print_info=False)
+            generalized_sfa = dfa_to_sfa(learned_dfa, alg)
+            if not testautomaton.bisimilar(generalized_sfa):
+                print("Learned SFA is not bisimilar to the original SFA")
+                visualize_automaton(testautomaton, path="./SAITesting/test_automaton")
+                visualize_automaton(generalized_sfa, path="./SAITesting/learned_automaton")
+                print(learned_dfa)
+                pickle.dump(testautomaton, open("./SAITesting/test_automaton.pkl", "wb"))
+                break
 
-for i in range(50):
-    testautomaton = generate_sfa(3)
-    sample = testautomaton.characteristic_sample()
-    learned_dfa = run_RPNI(list(sample), 'dfa', 'classic',print_info=False)
-    generalized_sfa = dfa_to_sfa(learned_dfa, alg)
-    if not testautomaton.bisimilar(generalized_sfa):
-        print("Learned SFA is not bisimilar to the original SFA")
-        visualize_automaton(testautomaton, path="./SAITesting/test_automaton")
-        visualize_automaton(generalized_sfa, path="./SAITesting/learned_automaton")
-        print(learned_dfa)
-        pickle.dump(testautomaton, open("./SAITesting/test_automaton.pkl", "wb"))
-        break
-    # else:
-    #     print("Learned SFA is bisimilar to the original SFA")
-    #     print("Test automaton:")
-    #     print(testautomaton)
-    #     print("Learned DFA:")
-    #     print(generalized_sfa)
+test_sai_rpni(pickled="./SAITesting/test_automaton2.pkl")
+
+# testautomaton = Sfa.from_state_setup(
+#     {"q0" : (False, [(IntervalPredicate(None, None), "q1"),]), 
+#       "q1": (True, [(IntervalPredicate(None, None), "q2")]), 
+#       "q2" : (True, [(IntervalPredicate(None, 100), "q0"),(IntervalPredicate(100, None), "q2")])},
+#         alg)
+# sample = testautomaton.characteristic_sample()
+# learned_dfa = run_RPNI(list(sample), 'dfa', 'classic',print_info=False)
+# generalized_sfa = dfa_to_sfa(learned_dfa, alg)
+# if not testautomaton.bisimilar(generalized_sfa):
+#     print("Learned SFA is not bisimilar to the original SFA")
+#     visualize_automaton(testautomaton, path="./SAITesting/test_automaton")
+#     visualize_automaton(generalized_sfa, path="./SAITesting/learned_automaton")
+#     print(learned_dfa)
+#     pickle.dump(testautomaton, open("./SAITesting/test_automaton2.pkl", "wb"))

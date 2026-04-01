@@ -290,7 +290,7 @@ class IntervalAlgebra(BooleanAlgebra[int]):
                     domain = domain.intersection(pred_domain)
             return domain if domain is not None else set()
     
-    def pick_witness(self, predicate: 'IntervalPredicate') -> Optional[int]:
+    def pick_witness(self, predicate: 'Predicate') -> Optional[int]:
         if isinstance(predicate, IntervalPredicate):
             if not self.is_satisfiable(predicate):
                 print(f"Warning: trying to pick witness from unsatisfiable predicate {predicate}.")
@@ -314,6 +314,33 @@ class IntervalAlgebra(BooleanAlgebra[int]):
             minimized = self.minimize_predicate(predicate)
             return self.pick_witness(minimized)
 
+        return None
+    def pick_witness_random(self, predicate: 'Predicate') -> Optional[int]:
+        import numpy as np
+        if isinstance(predicate, IntervalPredicate):
+            if not self.is_satisfiable(predicate):
+                print(f"Warning: trying to pick witness from unsatisfiable predicate {predicate}.")
+                return None
+            if predicate.lower is not None and predicate.upper is not None:
+                return np.random.randint(predicate.lower, predicate.upper)
+            elif predicate.lower is not None:
+                return np.random.randint(predicate.lower, predicate.lower + 100) 
+            elif predicate.upper is not None:
+                return np.random.randint(predicate.upper - 100, predicate.upper)  
+            else:
+                return np.random.randint(-100, 100)  # Arbitrary range for infinite interval
+          # OR : witness from any satisfiable branch
+        elif isinstance(predicate, OrPredicate):
+            for pred in predicate.predlist:
+                witness = self.pick_witness_random(pred)
+                if witness is not None and predicate.eval(witness):
+                    return witness
+
+        # AND : minimize then pick
+        elif isinstance(predicate, AndPredicate):
+            minimized = self.minimize_predicate(predicate)
+            return self.pick_witness_random(minimized)
+        
         return None
     # convert bounds to numeric for sorting/merging (-inf/inf for None)
     def to_bounds(self,ip: IntervalPredicate):
