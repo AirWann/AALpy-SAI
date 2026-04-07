@@ -33,12 +33,15 @@ def dfa_to_sfa(dfa: Dfa, algebra: BooleanAlgebra) -> Sfa:
     for example, if a Dfa state has transitions on input symbols 1, 5, and 10, the corresponding SFA state will have transitions with predicates [1, 5), [5, 10), and [10, None) respectively.
     """
     assert all((lambda i: isinstance(i, int) or i == None) for s in dfa.states for i in s.transitions.keys()), "Expected integer inputs in Dfa transitions"
+    dfa.make_input_complete()
     state_mapping = {}
     for dfa_state in dfa.states:
         sfa_state = SfaState(dfa_state.state_id, is_accepting=dfa_state.is_accepting)
         state_mapping[dfa_state] = sfa_state
     
     for dfa_state in dfa.states:
+    
+
         sfa_state = state_mapping[dfa_state]
         # Sort the input symbols to create intervals
         sorted_inputs = sorted(dfa_state.transitions.keys(), key=lambda x: (float('-inf') if x is None else x))
@@ -96,7 +99,6 @@ def test_sai_rpni(pickled=None):
                 pickle.dump(testautomaton, open("./SAITesting/test_automaton.pkl", "wb"))
                 break
 
-test_sai_rpni(pickled="./SAITesting/test_automaton2.pkl")
 
 # testautomaton = Sfa.from_state_setup(
 #     {"q0" : (False, [(IntervalPredicate(None, None), "q1"),]), 

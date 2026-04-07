@@ -10,6 +10,9 @@ import time
 from pickle import load,dump
 from typing import Set, Tuple
 import matplotlib.pyplot as plt
+from wakepy import keep
+from aalpy.learning_algs import run_RPNI
+from compare_sai_rpni import dfa_to_sfa
 
 def generate_random_sample(sfa: Sfa, num_samples: int, stop_prob: float, mode:int) -> Set:
     """
@@ -21,28 +24,28 @@ def generate_random_sample(sfa: Sfa, num_samples: int, stop_prob: float, mode:in
     - Mode 1: with a probability proportional to the size of the interval of the transition predicate.
     - Mode 2: according to a letter picked by a normal distribution such that there is an 80% chance it is between the lowest bound and highest bound of intervals of the outgoing transitions
     """
-    assert mode in [0, 1,2], "Mode should be either 0 or 1."
+    assert mode in [0, 1,2], "Mode should be either 0, 1 or 2."
     assert 0 < stop_prob <= 1, "stop_prob should be between 0 and 1."
     sample = set()
     for _ in range(num_samples):
-        current_state = sfa.initial_state
+        sfa.current_state = sfa.initial_state
         word = []
         while True:
             if np.random.rand() < stop_prob:
                 break
             if mode == 0:
                 # uniform random choice among available transitions
-                if not current_state.transitions:
+                if not sfa.current_state.transitions:
                     break
-                predicate, next_state = current_state.transitions[np.random.randint(len(current_state.transitions))]
+                predicate, next_state = sfa.current_state.transitions[np.random.randint(len(sfa.current_state.transitions))]
                 next_letter = sfa.algebra.pick_witness_random(predicate)                
             elif mode == 1:
                 # probability proportional to the size of the interval, and force probability 0.1 for unbounded intervals
-                if not current_state.transitions:
+                if not sfa.current_state.transitions:
                     break
                 sizes = [] 
-                for pred, _ in current_state.transitions:
-                    if isinstance(pred, IntervalPredicate) and pred.is_satisfiable():
+                for pred, _ in sfa.current_state.transitions:
+                    if isinstance(pred, IntervalPredicate) and sfa.algebra.is_satisfiable(pred):
                         if pred.lower is None or pred.upper is None:
                             sizes.append(-1)  # unbounded interval
                         else:  
@@ -54,7 +57,7 @@ def generate_random_sample(sfa: Sfa, num_samples: int, stop_prob: float, mode:in
                         sizes.append(1)
                 total_size = sum(size for size in sizes if size > 0)
                 if total_size == 0:
-                    probabilities = [1 / len(current_state.transitions)] * len(current_state.transitions)
+                    probabilities = [1 / len(sfa.current_state.transitions)] * len(sfa.current_state.transitions)
                 else:
                     for i in range(len(sizes)):
                         if sizes[i] == -1:  # unbounded interval
@@ -62,15 +65,15 @@ def generate_random_sample(sfa: Sfa, num_samples: int, stop_prob: float, mode:in
                     
                     probabilities = [size / sum(sizes) for size in sizes]
 
-                id = np.random.choice(len(current_state.transitions), p=probabilities)
-                predicate, next_state = current_state.transitions[id]
+                id = np.random.choice(len(sfa.current_state.transitions), p=probabilities)
+                predicate, next_state = sfa.current_state.transitions[id]
                 next_letter = sfa.algebra.pick_witness_random(predicate)
             elif mode == 2:
                 lowest_bound = None
                 highest_bound = None
-                for pred, _ in current_state.transitions:
+                for pred, _ in sfa.current_state.transitions:
                     if isinstance(pred, IntervalPredicate):
-                        if pred.is_satisfiable():
+                        if sfa.algebra.is_satisfiable(pred):
                             if lowest_bound is None or (pred.lower is not None and pred.lower < lowest_bound):
                                 lowest_bound = pred.lower
                             if highest_bound is None or (pred.upper is not None and pred.upper > highest_bound):
@@ -83,13 +86,15 @@ def generate_random_sample(sfa: Sfa, num_samples: int, stop_prob: float, mode:in
                 mean = (lowest_bound + highest_bound) / 2
                 std = (highest_bound - lowest_bound) / 2 / 0.84
                 next_letter = int(np.random.normal(mean, std))
-                next_state = sfa.step(next_letter)
+                
+                next_state = sfa.current_state
             if next_letter is None:
                 print(f"Warning: could not pick a witness for predicate {predicate}. Skipping this transition.")
                 break
             word.append(next_letter)
-            current_state = next_state
-        sample.add((tuple(word), current_state.is_accepting))
+            sfa.step(next_letter)
+
+        sample.add((tuple(word), sfa.current_state.is_accepting))
     return sample
 
 
@@ -119,7 +124,13 @@ def test_random_sampling(
             testautomaton = fixed_automaton
 
         start_time = time.time()
-        sample = generate_random_sample(testautomaton, num_samples=nb_samples, stop_prob=stop_prob, mode=mode)
+        if mode == -1:
+            sample = generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=0).union(
+                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=1),
+                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=2),
+            )
+        else:
+            sample = generate_random_sample(testautomaton, num_samples=nb_samples, stop_prob=stop_prob, mode=mode)
         sampling_time = time.time() - start_time
         learning_sample = set(list(sample)[:int(len(sample)*learning_part)])
         #print(learning_sample)
@@ -127,7 +138,12 @@ def test_random_sampling(
             testing_sample = fixed_test_sample
         else:
             testing_sample = sample - learning_sample
-        learned_sfa = SAI(learning_sample).run_SAI()
+        
+        if mode == -1:
+            learned_dfa = run_RPNI(list(learning_sample), 'dfa', 'classic',print_info=False)
+            learned_sfa = dfa_to_sfa(learned_dfa,IntervalAlgebra())
+        else:
+            learned_sfa = SAI(learning_sample).run_SAI()
         learning_time = time.time() - start_time - sampling_time
         result_sizes[i] = len(learned_sfa.states)
         if print_info:
@@ -140,7 +156,11 @@ def test_random_sampling(
         for word, label in testing_sample:
             if learned_sfa.accepts(word) == label:
                 correct += 1
-        accuracy = correct / len(testing_sample)
+        if len(testing_sample) == 0:
+            print("Warning: testing sample is empty, cannot compute accuracy.")
+            accuracy = 0.0
+        else:
+            accuracy = correct / len(testing_sample)
         if print_info:
             print(f"Accuracy: {correct}/{len(testing_sample)} = {accuracy:.2f}")
         accuracies[i] = accuracy
@@ -158,78 +178,132 @@ def benchmark_random_sampling_vs_learning_part(
     nb_runs=30,
     nb_samples=2000,
     stop_prob=0.1,
-    mode=0,
+    modes=[0],
     uncertainty="ci95",  # "ci95", "sem", "std"
     output_prefix="random_sampling_benchmark",
     print_info=False,
 ):
+    if isinstance(modes, int):
+        modes = [modes]
     mean_acc, err_acc = [], []
     all_acc = []
     all_times, all_learn_sizes, all_parts, all_result_sizes = [], [], [], []
-    print(f"==Starting benchmark with nb_states={nb_states}, nb_runs={nb_runs}, nb_samples={nb_samples}, stop_prob={stop_prob}, mode={mode}==")
-    for lp in learning_parts:
-        print(f"Running benchmark for learning_part={lp:.2f}...")
-        acc, learn_times, learn_samples, result_sizes = test_random_sampling(
-            fixed_automaton=fixed_automaton,
-            fixed_test_sample=fixed_test_sample,
-            nb_states=nb_states,
+    accuracy_by_mode = np.zeros((len(modes), len(learning_parts)))
+    error_by_mode = np.zeros((len(modes), len(learning_parts)))
+    for mode in modes:
+        print(f"\n\n--- Mode {mode} ---")
+        print(f"==Starting benchmark with nb_states={nb_states}, nb_runs={nb_runs}, nb_samples={nb_samples}, stop_prob={stop_prob}, mode={mode}==")
+        mean_acc.clear()
+        err_acc.clear()
+        all_acc.clear()
+        all_times.clear()
+        all_learn_sizes.clear()
+        all_parts.clear()
+        all_result_sizes.clear()
+        for lp in learning_parts:
+            print(f"Running benchmark for learning_part={lp:.2f}...")
+            acc, learn_times, learn_samples, result_sizes = test_random_sampling(
+                fixed_automaton=fixed_automaton,
+                fixed_test_sample=fixed_test_sample,
+                nb_states=nb_states,
+                nb_runs=nb_runs,
+                nb_samples=nb_samples,
+                learning_part=lp,
+                stop_prob=stop_prob,
+                mode=mode,
+                print_info=print_info,
+            )
+
+            # 1) accuracy vs learning_part
+            all_acc.extend(acc.tolist())
+            m = float(np.mean(acc))
+            s = float(np.std(acc, ddof=1)) if len(acc) > 1 else 0.0
+            sem = s / np.sqrt(len(acc)) if len(acc) > 0 else 0.0
+
+            if uncertainty == "std":
+                e = s
+            elif uncertainty == "sem":
+                e = sem
+            else:
+                e = 1.96 * sem  # ci95
+
+            mean_acc.append(m)
+            err_acc.append(e)
+            accuracy_by_mode[modes.index(mode), learning_parts.tolist().index(lp)] = m
+            error_by_mode[modes.index(mode), learning_parts.tolist().index(lp)] = e
+            # 2) learning time vs learning sample size (raw points)
+            all_times.extend(learn_times.tolist())
+            all_learn_sizes.extend(learn_samples.tolist())
+            all_parts.extend([lp] * len(learn_times))
+            all_result_sizes.extend(result_sizes.tolist())
+            print(f"learning_part={lp:.2f}: mean_acc={m:.4f}, err_acc={e:.4f}, mean_time={np.mean(learn_times):.2f}s")
+
+        plot_accuracy_vs_learning_part(
+            learning_parts=learning_parts,
+            mean_acc=mean_acc,
+            err_acc=err_acc,
+            output_path=f"{output_prefix}_mode_{mode}_accuracy_vs_learning_part.png",
+            uncertainty=uncertainty,
             nb_runs=nb_runs,
-            nb_samples=nb_samples,
-            learning_part=lp,
-            stop_prob=stop_prob,
-            mode=mode,
-            print_info=print_info,
         )
 
-        # 1) accuracy vs learning_part
-        all_acc.extend(acc.tolist())
-        m = float(np.mean(acc))
-        s = float(np.std(acc, ddof=1)) if len(acc) > 1 else 0.0
-        sem = s / np.sqrt(len(acc)) if len(acc) > 0 else 0.0
-
-        if uncertainty == "std":
-            e = s
-        elif uncertainty == "sem":
-            e = sem
-        else:
-            e = 1.96 * sem  # ci95
-
-        mean_acc.append(m)
-        err_acc.append(e)
-
-        # 2) learning time vs learning sample size (raw points)
-        all_times.extend(learn_times.tolist())
-        all_learn_sizes.extend(learn_samples.tolist())
-        all_parts.extend([lp] * len(learn_times))
-        all_result_sizes.extend(result_sizes.tolist())
-        print(f"learning_part={lp:.2f}: mean_acc={m:.4f}, err_acc={e:.4f}, mean_time={np.mean(learn_times):.2f}s")
-
-    plot_accuracy_vs_learning_part(
+        plot_learning_time_vs_learning_sample_size(
+            learn_sample_sizes=all_learn_sizes,
+            learn_times=all_times,
+            output_path=f"{output_prefix}_mode_{mode}_time_vs_learning_sample_size.png",
+            log_scale=True,
+        )
+        goal_size = len(fixed_automaton.states) if fixed_automaton is not None else nb_states
+        # Plot accuracy versus learning sample size and resulting automaton size, colored by learning_part
+        plot_accuracy_versus_sample_and_result_size(
+            learn_sample_sizes=all_learn_sizes,
+            acc=all_acc,
+            goal_size=goal_size,
+            result_sizes=all_result_sizes,
+            output_path=f"{output_prefix}_mode_{mode}_time_vs_size_colored_by_part.png",
+            log_scale=True,
+        )
+    plot_accuracies(
         learning_parts=learning_parts,
-        mean_acc=mean_acc,
-        err_acc=err_acc,
-        output_path=f"{output_prefix}_accuracy_vs_learning_part.png",
+        mean_acc=accuracy_by_mode,
+        err_acc=error_by_mode,
+        mode=modes,
+        output_path=f"modes_comparison.png",
         uncertainty=uncertainty,
         nb_runs=nb_runs,
     )
 
-    plot_learning_time_vs_learning_sample_size(
-        learn_sample_sizes=all_learn_sizes,
-        learn_times=all_times,
-        output_path=f"{output_prefix}_time_vs_learning_sample_size.png",
-        log_scale=True,
-    )
-    goal_size = len(fixed_automaton.states) if fixed_automaton is not None else nb_states
-    # Plot accuracy versus learning sample size and resulting automaton size, colored by learning_part
-    plot_accuracy_versus_sample_and_result_size(
-        learn_sample_sizes=all_learn_sizes,
-        acc=all_acc,
-        goal_size=goal_size,
-        result_sizes=all_result_sizes,
-        output_path=f"{output_prefix}_time_vs_size_colored_by_part.png",
-        log_scale=True,
-    )
 
+def plot_accuracies(
+    learning_parts,
+    mean_acc,
+    err_acc,
+    mode,
+    output_path="accuracy_comparison.png",
+    uncertainty="ci95",
+    nb_runs=30,
+):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for i in range(mean_acc.shape[0]):
+        ax.errorbar(
+            learning_parts,
+            mean_acc[i],
+            yerr=err_acc[i],
+            fmt="o-",
+            label=f"Mode {mode[i]}",
+            capsize=4,
+            elinewidth=1,
+        )
+    ax.set_xlabel("learning_part")
+    ax.set_ylabel("Accuracy")
+    ax.set_title(f"Accuracy vs proportion of the sample given ({uncertainty}, {nb_runs} runs) for different modes")
+    ax.set_ylim(0.0, 1.02)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Plot saved to: {output_path}")
 
 def plot_accuracy_vs_learning_part(
     learning_parts,
@@ -318,13 +392,13 @@ def plot_accuracy_versus_sample_and_result_size(
     fig, ax = plt.subplots(figsize=(8, 6))
     scatter = ax.scatter(x, y, s=50, c=s, cmap="viridis", alpha=0.7, edgecolors="w", linewidth=0.5)
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("Learned automaton size (#states)")
+    cbar.set_label("Learned automaton #states")
     if log_scale:
         ax.set_xscale("log")
     ax.set_xlabel("Learning sample size (#words)")
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0.0, 1.02)
-    plt.suptitle("Accuracy vs learning sample size colored by learned automaton size") 
+    plt.suptitle("Accuracy vs learning sample size (⚠️ log scale) colored by learned automaton size") 
     plt.title(f"target automaton has {goal_size} states")
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -333,21 +407,27 @@ def plot_accuracy_versus_sample_and_result_size(
     print(f"Plot saved to: {output_path}")
 
 if __name__ == "__main__":
-    smallparts = np.linspace(0.01, 0.09, 4)
-    parts = np.linspace(0.1, 1, 5)
-    allparts = np.concatenate((smallparts, parts))
-    testautomaton = generate_sfa(nb_states=6)
-    fixed_test_sample = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=0)
-    visualize_automaton(testautomaton, path="./SAITesting/test_automaton2")
-    benchmark_random_sampling_vs_learning_part(
-        fixed_automaton=testautomaton,
-        fixed_test_sample=fixed_test_sample,
-        learning_parts=allparts,
-        nb_states=6,
-        nb_runs=20,
-        nb_samples=1500,
-        stop_prob=0.2,
-        mode=0,
-        uncertainty="ci95",
-        output_prefix="random_sampling_sai",
-    )
+    with keep.running():
+
+        smallparts = np.linspace(0.01, 0.1, 5, endpoint=False)
+        parts = np.linspace(0.1, 1, 5)
+        allparts = np.concatenate((smallparts, parts))
+        testautomaton = generate_sfa(nb_states=8)
+        sample0 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=0)
+        sample1 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=1)
+        sample2 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=2)
+        fixed_test_sample = sample0.union(sample1).union(sample2)
+        visualize_automaton(testautomaton, path="./SAITesting/test_automaton2")
+    
+        benchmark_random_sampling_vs_learning_part(
+            fixed_automaton=testautomaton,
+            fixed_test_sample=fixed_test_sample,
+            learning_parts=allparts,
+            nb_states=8,
+            nb_runs=15,
+            nb_samples=2000,
+            stop_prob=0.15,
+            modes=[-1],
+            uncertainty="ci95",
+            output_prefix=f"sai+rpni",
+        )

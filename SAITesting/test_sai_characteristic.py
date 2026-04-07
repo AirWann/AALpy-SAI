@@ -385,8 +385,8 @@ def modify_sample(sample, automaton, modification_rate=0.1):
 
 
 if __name__ == "__main__":
-    for i in range(50):
-        test_automaton = generate_sfa(i//2 + 2)
+    for i in range(20):
+        test_automaton = generate_sfa(i+2)
         #test_automaton = load(open("./SAITesting/test_automaton2.pkl", "rb"))
         sample = test_automaton.characteristic_sample()
         modified_sample,cpt = modify_sample(sample, test_automaton, modification_rate=0.5)
@@ -394,6 +394,7 @@ if __name__ == "__main__":
         # print(sample)
         # print("\nModified sample:")
         # print(modified_sample)
+        print(f"Original sample size: {len(sample)}, Modified sample size: {len(modified_sample)}")
         learned_sfa = SAI(modified_sample, algebra=IntervalAlgebra(), print_info=False).run_SAI()
         if not learned_sfa.bisimilar(test_automaton):
             print("Learned SFA is not bisimilar to the original SFA after modification")

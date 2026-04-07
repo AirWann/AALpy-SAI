@@ -1,5 +1,6 @@
 from functools import total_ordering
 from typing import List, Set,Tuple
+from collections import deque
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
@@ -41,7 +42,7 @@ class SAINode:
         return self.prefix == other.prefix
 
     def __hash__(self):
-        return id(self) 
+        return self.prefix.__hash__() 
     def __str__(self) -> str:
         return f"Node(prefix={self.prefix}, accepting={self.accepting}, rejecting={self.rejecting}, children={[(str(p), c.prefix) for p, c in self.children]})"
     
@@ -130,11 +131,15 @@ def to_automaton(red: List[SAINode]) -> Sfa:
 
 
 class SAI:
-    def __init__(self, data, algebra = IntervalAlgebra(), print_info=False):
+    def __init__(self, data:Set[Tuple[Tuple, bool]], algebra:BooleanAlgebra = IntervalAlgebra(), print_info:bool=False):
         self.data = data
         self.algebra = algebra
         self.root = create_SPTA(data, algebra)
         self.print_info = print_info
+        pos = {s for s, l in data if l}
+        neg = {s for s, l in data if not l}
+        if pos & neg:
+            raise ValueError(f"Inconsistent dataset: word {pos&neg} labeled both positively and negatively")
 
     def run_SAI(self):
         if self.root.accepting and self.root.rejecting:
@@ -144,6 +149,8 @@ class SAI:
         if self.print_info:
             print(f"Initial red set: {red},\nInitial blue set: {blue}")
         while blue:
+            # if self.print_info:
+            #     print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
             qb = min(blue)
             pred, father = self.find_transition_to(qb)
             assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
@@ -156,7 +163,7 @@ class SAI:
                     #don't even try
                     continue
                 merged, undo_log, old_father_children = self.merge(
-                    r, qb.shallow_copy(), father, with_undo=True
+                    r, qb.shallow_copy(), father
                 )
                 if self.is_consistent(red+[merged]):
                     #merge is accepted
@@ -189,11 +196,21 @@ class SAI:
                     blue.extend(new_blue)
                     if self.print_info:
                         print(f"Colored {qb.prefix} red")
+            #split so the new qb can become red
             if not became_red_flag:
-                #split so the new qb can become red
+                
                 if self.print_info:
                     print(f"Trying to split node {qb.prefix} with father {father.prefix if father else None}")
-                split_pred = self._find_split_predicate(red, qb,father)
+                try:
+                    split_pred = self._find_split_predicate(red, qb,father)
+                except ValueError as e:
+                    print(f"Error occurred while finding split predicate: {e}")
+                    print(f"Red set: {red}")
+                    print(f"Blue set: {blue}")
+                    import pickle
+                    with open("debug_sample.pkl", "wb") as f:
+                        pickle.dump(self.data, f)
+                    raise
                 if split_pred is None:
                     raise ValueError(f"Could not find a split predicate for node with prefix {qb.prefix}")
                 if self.print_info:
@@ -209,6 +226,22 @@ class SAI:
         
         if not self.is_consistent(red):
             raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
+        automaton = to_automaton(red)
+        #check that automaton is consistent with data
+        for seq, label in self.data:
+            if automaton.accepts(seq) != label:
+                from pickle import dump
+                with open("debug_sample.pkl", "wb") as f:
+                    dump(self.data, f)
+                print(automaton)
+                raise ValueError(f"CATASTROPHIC ERROR: Learned automaton inconsistent with data on sequence {seq} with label {label}")
+        if not automaton.is_input_complete():
+            from pickle import dump
+            with open("debug_sample.pkl", "wb") as f:
+                dump(self.data, f)
+            raise ValueError("ERROR: Learned automaton is not input complete !")
+        if self.print_info:
+            print(f"Learned automaton: {automaton}\n DONE !")
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
@@ -226,7 +259,7 @@ class SAI:
 
         # Need at least 2 distinct letters to create a non-trivial split.
         if len(relevant_letters) < 2:
-            raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
+             raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
 
         original_children = father.children.copy()
         best_predicate = None
@@ -282,8 +315,10 @@ class SAI:
         """
         for node in red:
             if node.accepting and node.rejecting:
-                if self.print_info:
-                    print(f"node {node.prefix} inconsistent")
+                return False
+            if (((), True) in node.sample) and node.rejecting:
+                return False
+            if (((), False) in node.sample) and node.accepting:
                 return False
             pos = {w for w, l in node.sample if l}
             neg = {w for w, l in node.sample if not l}
@@ -293,43 +328,13 @@ class SAI:
                 return False
         return True
     
-    def _record_node_state(self, node: SAINode, undo_log, seen):
+    def _record_node_state(self, node: SAINode, undo_log, seen: Set[SAINode]):
         if node in seen:
             return
         seen.add(node)
         undo_log.append((node, node.accepting, node.rejecting, node.sample))
-    def _merge_rec(self, red_node: SAINode, other_node: SAINode, undo_log=None, seen=None):
-        """
-        Recursive merge of other_node into red_node.
-        """
-        # Merge labels and samples at current node
-        if undo_log is not None and seen is not None:
-            self._record_node_state(red_node, undo_log, seen)
-        red_node.accepting = red_node.accepting or other_node.accepting
-        red_node.rejecting = red_node.rejecting or other_node.rejecting
-
-        red_sample = red_node.sample if red_node.sample is not None else set()
-        other_sample = other_node.sample if other_node.sample is not None else set()
-        red_node.sample = red_sample | other_sample
-
-        # Nothing to propagate if  no outgoing transitions
-        if not red_node.children or not other_node.children:
-            return
-
-        # Project other_node's sample through each red predicate and recurse
-        for pred, red_child in red_node.children:
-            projected = {
-                (w[1:], lbl)
-                for w, lbl in other_sample
-                if len(w) > 0 and pred.eval(w[0])
-            }
-            if not projected:
-                continue
-
-            projected_spta = create_SPTA(projected, self.algebra)
-            self._merge_rec(red_child, projected_spta, undo_log, seen)
-
-    def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None, with_undo: bool = False):
+    
+    def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None, seen =None, undo_log=None):
         """
         Merge two nodes and return the root node of resulting model.
         No check for compatibility is needed as outgoing transitions from blue are always a single TRUE.
@@ -337,21 +342,63 @@ class SAI:
         """
         if red_node is blue_node:
             print("Warning: trying to merge a node with itself")
-            return (red_node, [], None) if with_undo else red_node
-        
-        undo_log = []
-        seen = set()
-        old_father_children = blue_father.children.copy() if (with_undo and blue_father is not None) else None
+            return (red_node, [], None) 
+        if undo_log is None:
+            undo_log = []
+        if seen is None:
+            seen = set()
+
+        old_father_children = blue_father.children.copy() if blue_father is not None else None
         # Merge blue into red
-        self._merge_rec(red_node, blue_node, undo_log if with_undo else None, seen if with_undo else None)
+        # Merge labels and samples at current node
+        if undo_log is not None and seen is not None:
+            self._record_node_state(red_node, undo_log, seen)
+        red_node.accepting = red_node.accepting or blue_node.accepting
+        red_node.rejecting = red_node.rejecting or blue_node.rejecting
+
+        red_sample = red_node.sample if red_node.sample is not None else set()
+        blue_sample = blue_node.sample if blue_node.sample is not None else set()
+        red_node.sample = red_sample | blue_sample
+
+        
+
         # Replace reference to blue_node in the graph by red_node
         if blue_father is not None:
             # Remove blue_node's transition
             blue_father.children = [((p, red_node) if c == blue_node else (p,c)) for (p, c) in blue_father.children]
-        if with_undo:
-            return red_node, undo_log, old_father_children
 
-        return red_node
+        # Nothing to propagate if  no outgoing transitions
+        if not blue_node.children:
+            return red_node, undo_log, old_father_children
+        if not red_node.children:
+            red_node.children = blue_node.children
+            return red_node, undo_log, old_father_children
+        # Project blue_node's sample through each red predicate and recurse
+        for pred, red_child in red_node.children:
+            projected = {
+                (w[1:], lbl)
+                for w, lbl in blue_sample
+                if len(w) > 0 and pred.eval(w[0])
+            }
+            #if no sample is projected, no merge to do. else pick the first letter of any word
+            if not projected:
+                continue
+            else:
+                any_word = next(iter(projected))[0]
+                first_letter = any_word[0] if len(any_word) > 0 else 9999999 #TODO this is a horrible hack
+
+            projected_spta = create_SPTA(projected, self.algebra,prefix=blue_node.prefix+(first_letter,))
+            if blue_node == red_child:
+                #the recursive merge is going to be into red
+                self.merge(red_node, projected_spta, red_node, seen, undo_log)
+            else:
+                
+                self.merge(red_child, projected_spta, blue_node, seen, undo_log)
+
+        
+        
+        return red_node, undo_log, old_father_children
+
         
     def find_transition_to(self, target: SAINode, current: SAINode=None, visited=None):
         """
@@ -378,16 +425,22 @@ class SAI:
             raise ValueError(f"Transition to target node {target} not found")
         return None
 
-#should learn automaton recognizing words with odd numbers of letters below 100
-# sample = {
-#     ((), False),
-#     ((0,), True),
-#     ((100,), False),
-#     ((0, 0), False),
-#     ((0, 100), True),
-#     ((0,0,0,0,0,0,0,0,0,0), False),
-#     ((0,0,0,0,0,0,0,100), True),
-# }
-# sai = SAI(sample, algebra=IntervalAlgebra())
-# automaton = sai.run_SAI()
-# print(automaton)
+if __name__ == "__main__":
+    from pickle import load,dump
+    # sample = {
+    #     ((), False),
+    #     ((0,), True),
+    #     ((100,), False),
+    #     ((100,100), False),
+    #     ((0, 0), False),
+    #     ((0,0,99,0,0,0,100), True),
+    #     ((0,0,0,0,7,0,0,100), False),
+    # }
+    sample = load(open("debug_sample.pkl", "rb"))
+    print (f"Loaded sample of size {len(sample)}")
+    print (f"Sample: {sample}")
+    sai = SAI(sample, print_info=True)
+    try:
+        sai.run_SAI()
+    except Exception as e:
+        print(e)
