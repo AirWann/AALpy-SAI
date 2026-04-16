@@ -9,6 +9,7 @@ from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from wakepy import keep
 from pickle import dump, load
+from utilities import generate_sfa
 
 def save_raw_benchmark_data(output_prefix, records):
     if not records:
@@ -32,23 +33,7 @@ def save_raw_benchmark_data(output_prefix, records):
     print(f"Appended {len(records)} rows to: {csv_path}")
 
 
-def generate_sfa(nb_states):
-    states = []
-    for i in range(nb_states):
-        s = SfaState(f"q{i}", is_accepting=np.random.choice([True, False])) 
-        states.append(s)
-    for i in range(nb_states):
-        s = states[i]
-        nb_trans = np.random.randint(nb_states//4, nb_states)
-        bounds = sorted(np.random.choice(range(0, nb_trans*200), max(0, nb_trans-1), replace=False))
-        bounds.append(None)
-        for i, b in enumerate(bounds):
-            pred = IntervalPredicate(int(bounds[i-1]) if i > 0 else None, int(b) if b is not None else None)
-            target = np.random.choice(states)
-            s.transitions.append((pred, target))
-    s0 = states[0]
-    sfa = Sfa(s0, states)
-    return sfa
+
 
 
 def test_sai_characteristic(nb_states=10,nb_runs=10,fixed_seed=None,visualize=False,print_info=False,csv_file=None):

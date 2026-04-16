@@ -53,7 +53,26 @@ class GRUModel(nn.Module):
         last_hidden = h_n[-1]                       # [B, H]
         logits = self.fc(last_hidden).squeeze(-1)   # [B]
         return logits
-    
+
+class LSTMModel(nn.Module):
+    def __init__(self, vocab_size: int,padding_value: int, embedding_dim: int, hidden_dim: int):
+        super(LSTMModel, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_value)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
+        self.fc1 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        embedded = self.embedding(x)                # [B, T, E]
+        out, (h_n, c_n) = self.lstm(embedded)       # out: [B, T, H], h_n: [1, B, H]
+        last_hidden = h_n[-1]                       # [B, H]
+        logits1 = self.fc1(last_hidden).squeeze(-1)   # [B, H]
+        logits = self.fc2(logits1).squeeze(-1)   # [B]
+
+        return logits
+
+
+
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss = 0.0
@@ -112,7 +131,7 @@ def learn_from_sample(dataset: WordDataset, criterion, device, epochs=20):
     val_loader = data.DataLoader(val_dataset, batch_size=32)
 
     
-    model = GRUModel(vocab_size=dataset.vocab_size, padding_value=dataset.pad_value, embedding_dim=64, hidden_dim=128).to(device)
+    model = LSTMModel(vocab_size=dataset.vocab_size, padding_value=dataset.pad_value, embedding_dim=8, hidden_dim=32).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
     best_acc = 0.0
@@ -131,7 +150,7 @@ def learn_from_sample(dataset: WordDataset, criterion, device, epochs=20):
 
 
 def benchmark_SAI_vs_NN(testautomaton, sample_sizes: List[int], test_sample : Set[tuple[tuple[int,...],bool]], epochs=20):
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     criterion = nn.BCEWithLogitsLoss()
 
@@ -141,7 +160,8 @@ def benchmark_SAI_vs_NN(testautomaton, sample_sizes: List[int], test_sample : Se
     SFA_accs = []
     NN_accs = []
     for size in sample_sizes:
-        learn_sample = generate_random_sample(testautomaton, size, 0.5, mode=2)
+
+        learn_sample = generate_random_sample(testautomaton, size, 0.5, mode=1)
         learn_min = min((int(min(w)) for w, _ in learn_sample if len(w) > 0), default=0)
         learn_max = max((int(max(w)) for w, _ in learn_sample if len(w) > 0), default=0)
         globalmin = min(test_min, learn_min)
@@ -209,9 +229,12 @@ def plot_benchmark_results(graph_data):
 
 if __name__ == "__main__":
     
-    testautomaton = generate_sfa(10)
+    testautomaton = generate_sfa(8)
     visualize_automaton(testautomaton, path="./SAITesting/test_automatonNN")
-    test_sample = generate_random_sample(testautomaton, 1000, 0.5, mode=2)
+    sample0 = generate_random_sample(testautomaton, 500, 0.5, mode=0)
+    sample1 = generate_random_sample(testautomaton, 500, 0.5, mode=1)
+    sample2 = generate_random_sample(testautomaton, 500, 0.5, mode=2)
+    test_sample = sample0 | sample1 | sample2
     graph_data = benchmark_SAI_vs_NN(testautomaton, sample_sizes=[ 50, 100, 500, 1000, 5000 ], test_sample=test_sample, epochs=20)
     plot_benchmark_results(graph_data)
     

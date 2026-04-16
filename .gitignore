@@ -138,3 +138,4 @@ learned_sfa_*
 original_sfa_*
 sai_benchmark*
 SAITesting/*.pdf
+*.png
