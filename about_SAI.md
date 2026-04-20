@@ -6,11 +6,11 @@ In a nutshell, symbolic automata are finite-state automata where transitions are
 
 ### Relevant files
 
-In [aalpy/base/BooleanAlgebra.py](/aalpy/base/BooleanAlgebra.py), 
+In [aalpy/base/BooleanAlgebra.py](/aalpy/base/BooleanAlgebra.py), Boolean algebras are defined as an abstract class and a concrete one (IntervalAlgebra) is also given.
 
-In [aalpy/automata/Sfa.py](/aalpy/automata/Sfa.py),
+In [aalpy/automata/Sfa.py](/aalpy/automata/Sfa.py), SFA are defined. Some useful functions like `characteristic_sample` are found here.
 
-In [aalpy/learning_algs/deterministic_passive/SAI.py](aalpy/learning_algs/deterministic_passive/SAI.py), 
+In [aalpy/learning_algs/deterministic_passive/SAI.py](aalpy/learning_algs/deterministic_passive/SAI.py), the SAI algorithm is implemented with all its components.
 
 Anything else, e.g. related to testing/benchmarking, is found in folder [SAITesting/](SAITesting/).
 
@@ -45,7 +45,8 @@ To create an instance of SAI, call `SAI(sample, algebra, print_info)` : algebra 
 #### Other utilities
 function `visualize_automaton` from `aalpy.utils` allows you to print an SFA to PDF.
 
-[SAITesting/utilities.py](SAITesting/utilities.py) contains a few useful functions that should be self-explanatory (and are commented so as to be).
+[SAITesting/utilities.py](SAITesting/utilities.py) contains a few useful functions that should be self-explanatory (and are commented so as to be) :
+ `generate_sfa`, `sfa_to_dfa`, `dfa_to_sfa`,`generate_random_sample`.
 
 Other scripts in that folder are benchmarks to test random sampling, test sai on characteristic samples, compare SAI to neural network models. 
 
