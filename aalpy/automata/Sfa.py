@@ -2,7 +2,7 @@ from typing import List, Set, Tuple, Dict
 
 from aalpy.base import AutomatonState, DeterministicAutomaton
 from aalpy.base.Automaton import InputType
-from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
+from aalpy.base.BooleanAlgebra import Predicate, BooleanAlgebra, IntervalAlgebra
 
 
 class SfaState(AutomatonState):

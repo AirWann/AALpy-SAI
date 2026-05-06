@@ -3,7 +3,7 @@ from typing import List, Set,Tuple
 from collections import deque
 
 from aalpy.automata.Sfa import Sfa
-from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
+from aalpy.base.BooleanAlgebra import GenIntPredicate, IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 
 @total_ordering
 class SAINode:
@@ -267,8 +267,10 @@ class SAI:
         # Try increasingly larger intervals: (-inf, letter[
         # Keep the largest consistent one; stop at first inconsistent.
         for letter in relevant_letters:
-            
-            candidate = IntervalPredicate(None, letter)
+            if isinstance(self.algebra, IntervalAlgebra):
+                candidate = IntervalPredicate(None, letter)
+            if isinstance(self.algebra, MonotonicAlgebra):
+                candidate = GenIntPredicate(None, letter)
             try:
                 split_nodes = self.split_transition(node, father, candidate)
                 is_ok = self.is_consistent([split_nodes[0]])

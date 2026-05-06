@@ -3,16 +3,24 @@ Abstract base classes for Predicates and Boolean Algebras used in Symbolic Autom
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, Optional, Set, Tuple, TypeVar
+from typing import Any, Generic, Optional, Protocol, Self, Set, Tuple, TypeVar
 
+Domain = TypeVar('Domain')
+class Ordered(Protocol):
+    """Protocol for types that support comparison operators."""
+    def __lt__(self, other: Self) -> bool: ...
+    def __le__(self, other: Self) -> bool: ...
+    def __gt__(self, other: Self) -> bool: ...
+    def __ge__(self, other: Self) -> bool: ...
 
-class Predicate(ABC):
+OrderedDomain = TypeVar('OrderedDomain', bound=Ordered) 
+class Predicate(ABC, Generic[Domain]):
     """
     Abstract base class for predicates used in symbolic automata
     """
 
     @abstractmethod
-    def eval(self, element: Any) -> bool:
+    def eval(self, element: Domain) -> bool:
         """
         Check if the predicate is satisfied by the given element.
         """
@@ -40,7 +48,7 @@ class Predicate(ABC):
         """Return hash value for use in sets and dictionaries."""
         pass
 
-Domain = TypeVar('Domain')
+
 class BooleanAlgebra(ABC, Generic[Domain]):
     """
     Abstract base class for Boolean Algebras.
@@ -95,12 +103,6 @@ class BooleanAlgebra(ABC, Generic[Domain]):
         """
         pass
 
-    @abstractmethod
-    def get_domain(self, predicate: Predicate) -> Set[Domain]:
-        """
-        Get all elements that satisfy the predicate.
-        """
-        pass
 
     @abstractmethod
     def pick_witness(self, predicate: Predicate) -> Domain:
@@ -158,7 +160,7 @@ class AndPredicate(Predicate):
     def __hash__(self) -> int:
         return hash(frozenset(self.predlist))
     
-class IntervalPredicate(Predicate):
+class IntervalPredicate(Predicate[int]):
     """
     A predicate representing an interval of integer values between lower (inclusive) and upper (exclusive).
 
@@ -270,25 +272,6 @@ class IntervalAlgebra(BooleanAlgebra[int]):
     def are_equivalent(self, pred1: 'Predicate', pred2: 'Predicate') -> bool:
         return self.minimize_predicate(pred1) == self.minimize_predicate(pred2)
     
-    def get_domain(self, predicate: 'Predicate') -> Set[int]:
-        if isinstance(predicate, IntervalPredicate):
-            if predicate.lower is None or predicate.upper is None:
-                raise NotImplementedError("Domain is infinite.")
-            return set(range(predicate.lower, predicate.upper))
-        elif isinstance(predicate, OrPredicate):
-            domain = set()
-            for pred in predicate.predlist:
-                domain.update(self.get_domain(pred))
-            return domain
-        elif isinstance(predicate, AndPredicate):
-            domain = set()
-            for pred in predicate.predlist:
-                pred_domain = self.get_domain(pred)
-                if len(domain) == 0:
-                    domain = pred_domain
-                else:
-                    domain = domain.intersection(pred_domain)
-            return domain if domain is not None else set()
     
     def pick_witness(self, predicate: 'Predicate') -> Optional[int]:
         if isinstance(predicate, IntervalPredicate):
@@ -419,6 +402,251 @@ class IntervalAlgebra(BooleanAlgebra[int]):
             return acc 
         else:
             raise NotImplementedError("Minimization not implemented for this predicate type.")
+        
+
+class GenIntPredicate(Predicate[OrderedDomain]):
+    """
+    A predicate representing an interval of values, not necessarily integers, between lower (inclusive) and upper (exclusive).
+    The type of elements must support comparison operators.
+    None for lower or upper bounds indicates +/- infinity or max value of the type.
+    _is_empty represents empty predicate (= false)
+    """
+    def __init__(self, lower: Optional[OrderedDomain], upper: Optional[OrderedDomain], _is_empty: bool = False):
+        self.lower = lower
+        self.upper = upper
+        self._is_empty = _is_empty
+    def eval(self, element: OrderedDomain) -> bool:
+        if self._is_empty:
+            return False
+        if element is None:
+            raise ValueError("Warning: Evaluating GenIntPredicate on None element.")
+        lower_ok = True if (self.lower is None) else element >= self.lower
+        upper_ok = True if (self.upper is None) else element < self.upper
+        return lower_ok and upper_ok
+    def negate(self) -> 'Predicate':
+        if self._is_empty:
+            return GenIntPredicate(None, None)  # Represents true
+        elif self.lower is None and self.upper is None:
+            return GenIntPredicate(None, None, _is_empty=True)  # Represents false
+        elif self.lower is None:
+            return GenIntPredicate(self.upper, None)
+        elif self.upper is None:
+            return GenIntPredicate(None, self.lower)
+        else:
+            return OrPredicate({GenIntPredicate(None, self.lower), GenIntPredicate(self.upper, None)})
+        
+    
+
+    def __repr__(self) -> str:
+        if self._is_empty:
+            return "FALSE"
+        return f"[{self.lower if self.lower is not None else '-inf'}, {self.upper if self.upper is not None else 'inf'}["
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, GenIntPredicate):
+            return False
+        if self._is_empty and other._is_empty:
+            return True
+        if self._is_empty or other._is_empty:
+            return False
+        return self.lower == other.lower and self.upper == other.upper
+
+
+    def __hash__(self) -> int:
+        if self._is_empty:
+            return hash("FALSE")
+        return hash((self.lower, self.upper))
+    
+class MonotonicAlgebra(BooleanAlgebra[OrderedDomain]):
+    """
+    A Boolean algebra where predicates are represented as intervals of values (GenIntPredicate).
+
+    IMPORTANT: The type of elements must support comparison operators, and either a predecessor function or a min_elt must be given for some functions to work properly (picking witnesses, necessary to obtain characteristic sets).
+
+    """
+    def __init__(self, predecessor = None, min_elt: Optional[OrderedDomain] = None):
+        self._min_elt = min_elt
+        self._predecessor = predecessor
+    @staticmethod 
+    def max_lower(a: Optional[OrderedDomain], b: Optional[OrderedDomain]) -> Optional[OrderedDomain]:
+                if a is None: return b
+                if b is None: return a
+                return max(a, b)
+    @staticmethod
+    def min_upper(a: Optional[OrderedDomain], b: Optional[OrderedDomain]) -> Optional[OrderedDomain]:
+                if a is None: return b
+                if b is None: return a
+                return min(a, b)
+    
+    def true(self) -> Predicate:
+        return GenIntPredicate(None, None)
+    
+    def false(self) -> Predicate:
+        return GenIntPredicate(None, None, _is_empty=True) # Represents false
+    def and_op(self, predicate: 'Predicate', other: 'Predicate') -> 'Predicate':
+        if isinstance(predicate, GenIntPredicate) and isinstance(other, GenIntPredicate):
+            if predicate._is_empty or other._is_empty:
+                return self.false()
+            new_lower = self.max_lower(predicate.lower, other.lower)
+            new_upper = self.min_upper(predicate.upper, other.upper)
+            if new_lower is not None and new_upper is not None and new_lower >= new_upper:
+                return self.false()
+            return GenIntPredicate(new_lower, new_upper)
+        return AndPredicate({predicate, other})
+    
+    def or_op(self, predicate: 'Predicate', other: 'Predicate') -> 'OrPredicate':
+        return OrPredicate({predicate, other})
+    
+    def is_satisfiable(self, predicate: 'Predicate') -> bool:
+        if isinstance(predicate, GenIntPredicate):
+            if predicate._is_empty:
+                return False
+            if predicate.lower is not None and predicate.upper is not None:
+                return predicate.lower < predicate.upper
+            return True
+        if isinstance(predicate, OrPredicate): #check if at least one is satisfiable
+            for pred in predicate.predlist: 
+                if self.is_satisfiable(pred):
+                    return True
+            return False
+        if isinstance(predicate, AndPredicate): #check if all are satisfiable
+            for pred in predicate.predlist: 
+                if not self.is_satisfiable(pred):
+                    return False
+            #TODO all being satisfiable does not guarantee that the intersection is satisfiable. implement minimization
+            return True
+        print(f"Warning: is_satisfiable called on unsupported predicate {predicate}")
+        return False #should never happen
+    
+    def is_true(self, predicate: 'Predicate') -> bool:
+        if isinstance(predicate, OrPredicate): #check if at least one is true
+            if len(predicate.predlist) == 0:
+                return False 
+            for pred in predicate.predlist:
+                if self.is_true(pred):
+                    return True
+            return False
+        elif isinstance(predicate, AndPredicate): #check if all are true
+            if len(predicate.predlist) == 0:
+                return True 
+            for pred in predicate.predlist:
+                if not self.is_true(pred):
+                    return False
+            return True
+        elif isinstance(predicate, GenIntPredicate):
+            return (predicate.lower is None) and (predicate.upper is None)
+        return False
+    def are_equivalent(self, pred1: 'Predicate', pred2: 'Predicate') -> bool:
+        return self.minimize_predicate(pred1) == self.minimize_predicate(pred2)
+    
+    def pick_witness(self, predicate: 'Predicate') -> Optional[OrderedDomain]:
+        if isinstance(predicate, GenIntPredicate):
+            if predicate._is_empty:
+                print(f"Warning: trying to pick witness from unsatisfiable predicate {predicate}.")
+                return None
+            if predicate.lower is not None:
+                return predicate.lower
+            elif predicate.upper is not None:
+                # pick the smallest element of the domain
+                if self._min_elt is None and self._predecessor is None:
+                    print(f"Warning: trying to pick witness from infinite upper interval {predicate} without min_elt or predecessor defined in the algebra ! \n CHARACTERISTIC SETS WILL NOT WORK !")
+                    return None
+                if self._predecessor is not None:
+                    return self._predecessor(predicate.upper)
+                return self._min_elt
+            else:
+                raise NotImplementedError("pick_witness for infinite interval not implemented for general OrderedDomain.")
+          # OR : witness from any satisfiable branch
+        elif isinstance(predicate, OrPredicate):
+            for pred in predicate.predlist:
+                witness = self.pick_witness(pred)
+                if witness is not None and predicate.eval(witness):
+                    return witness
+            return None
+
+        # AND : minimize then pick
+        elif isinstance(predicate, AndPredicate):
+            minimized = self.minimize_predicate(predicate)
+            return self.pick_witness(minimized)
+
+        print(f"Warning: pick_witness called on unsupported predicate {predicate}")
+        return None
+    def minimize_predicate(self, predicate: 'Predicate') -> 'Predicate':
+        # Guarantee: returns OrPredicate of GenIntPredicate, or a single GenIntPredicate.
+        if isinstance(predicate, GenIntPredicate):
+            return self.false() if predicate._is_empty else predicate
+
+        if isinstance(predicate, OrPredicate):
+            intervals = []
+            for pred in predicate.predlist:
+                minimized = self.minimize_predicate(pred)
+                if isinstance(minimized, GenIntPredicate):
+                    if self.is_satisfiable(minimized):
+                        intervals.append(minimized)
+                elif isinstance(minimized, OrPredicate):
+                    intervals.extend(
+                        ip for ip in minimized.predlist if self.is_satisfiable(ip)
+                    )
+
+            if not intervals:
+                return self.false()
+
+            # Sort by lower bound; None means -inf and sorts first.
+            def lower_key(ip: GenIntPredicate):
+                return (ip.lower is not None, ip.lower)
+
+            def overlaps_or_touches(left: GenIntPredicate, right: GenIntPredicate) -> bool:
+                if left.upper is None or right.lower is None:
+                    return True
+                return right.lower <= left.upper
+
+            def max_upper(a, b):
+                if a is None or b is None:
+                    return None
+                return max(a, b)
+
+            intervals.sort(key=lower_key)
+
+            merged = []
+            for ip in intervals:
+                if not merged:
+                    merged.append(ip)
+                    continue
+                last = merged[-1]
+                if overlaps_or_touches(last, ip):
+                    new_lower = last.lower if last.lower is None or ip.lower is None else min(last.lower, ip.lower)
+                    new_upper = max_upper(last.upper, ip.upper)
+                    merged[-1] = GenIntPredicate(new_lower, new_upper)
+                else:
+                    merged.append(ip)
+
+            if len(merged) == 1:
+                return merged[0]
+            return OrPredicate(set(merged))
+
+        if isinstance(predicate, AndPredicate):
+            minimized_preds = [self.minimize_predicate(pred) for pred in predicate.predlist]
+            acc = minimized_preds[0] if isinstance(minimized_preds[0], OrPredicate) else OrPredicate({minimized_preds[0]})
+            for pred in minimized_preds[1:]:
+                pred_or = pred if isinstance(pred, OrPredicate) else OrPredicate({pred})
+                intersected = set()
+                for interval1 in acc.predlist:
+                    for interval2 in pred_or.predlist:
+                        intersected_interval = self.and_op(interval1, interval2)
+                        if self.is_satisfiable(intersected_interval):
+                            intersected.add(intersected_interval)
+
+                if not intersected:
+                    return self.false()
+                acc = OrPredicate(intersected)
+
+            if len(acc.predlist) == 0:
+                return self.false()
+            if len(acc.predlist) == 1:
+                return next(iter(acc.predlist))
+            return acc
+
+        raise NotImplementedError("Minimization not implemented for this predicate type.")
 # some adhoc tests      
 # alg = IntervalAlgebra()
 # print(alg.and_op(IntervalPredicate(1,5), IntervalPredicate(3,7)))

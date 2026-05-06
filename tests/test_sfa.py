@@ -31,8 +31,8 @@ def test_get_shortest_path_returns_witness_inputs():
     alg = IntervalAlgebra()
     sfa = Sfa.from_state_setup(
         {
-            0: (True, [(IntervalPredicate(0, 10), 1)]),
-            1: (False, [(IntervalPredicate(0, 10), 1)]),
+            "0": (True, [(IntervalPredicate(0, 10), "1")]),
+            "1": (False, [(IntervalPredicate(0, 10), "0")]),
         },
         algebra=alg,
     )
