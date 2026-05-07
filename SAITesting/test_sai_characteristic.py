@@ -3,7 +3,7 @@ import time
 import csv
 import matplotlib.pyplot as plt
 from aalpy.automata.Sfa import Sfa, SfaState
-from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
+from aalpy.base.BooleanAlgebra import IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
@@ -370,24 +370,41 @@ def modify_sample(sample, automaton, modification_rate=0.1):
 
 
 if __name__ == "__main__":
-    for i in range(20):
-        test_automaton = generate_sfa(i+2)
-        #test_automaton = load(open("./SAITesting/test_automaton2.pkl", "rb"))
-        sample = test_automaton.characteristic_sample()
-        modified_sample,cpt = modify_sample(sample, test_automaton, modification_rate=0.5)
-        # print("Original sample:")
-        # print(sample)
-        # print("\nModified sample:")
-        # print(modified_sample)
-        print(f"Original sample size: {len(sample)}, Modified sample size: {len(modified_sample)}")
-        learned_sfa = SAI(modified_sample, algebra=IntervalAlgebra(), print_info=False).run_SAI()
-        if not learned_sfa.bisimilar(test_automaton):
-            print("Learned SFA is not bisimilar to the original SFA after modification")
-            visualize_automaton(test_automaton, path="./SAITesting/test_automaton_modified_sample")
+    # for i in range(20):
+    #     test_automaton = generate_sfa(i+2)
+    #     #test_automaton = load(open("./SAITesting/test_automaton2.pkl", "rb"))
+    #     sample = test_automaton.characteristic_sample()
+    #     modified_sample,cpt = modify_sample(sample, test_automaton, modification_rate=0.5)
+    #     # print("Original sample:")
+    #     # print(sample)
+    #     # print("\nModified sample:")
+    #     # print(modified_sample)
+    #     print(f"Original sample size: {len(sample)}, Modified sample size: {len(modified_sample)}")
+    #     learned_sfa = SAI(modified_sample, algebra=IntervalAlgebra(), print_info=False).run_SAI()
+    #     if not learned_sfa.bisimilar(test_automaton):
+    #         print("Learned SFA is not bisimilar to the original SFA after modification")
+    #         visualize_automaton(test_automaton, path="./SAITesting/test_automaton_modified_sample")
+    #         visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_modified_sample")
+    #         print("Original SFA:", test_automaton)
+    #         print("Learned SFA:", learned_sfa)
+    #         break
+    #     else:
+    #         print(f"{i}th Learned SFA is bisimilar to the original SFA even after {cpt} added words to a {len(sample)}-word sample ")
+    
+    from utilities import SymNum, gen_symnums
+    for i in range(10):
+        alg = MonotonicAlgebra(min_elt=SymNum("a", 0))
+        sfa = generate_sfa(10, alg, element_generator=gen_symnums)
+        sample = sfa.characteristic_sample()
+        
+        learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+        if not learned_sfa.bisimilar(sfa):
+            print("Learned SFA is not bisimilar to the original SFA. Counterexample:", learned_sfa.bisimilar(sfa, return_cex=True))
+
+            visualize_automaton(sfa, path="./SAITesting/test_automaton_modified_sample")
             visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_modified_sample")
-            print("Original SFA:", test_automaton)
+            print("Original SFA:", sfa)
             print("Learned SFA:", learned_sfa)
             break
         else:
-            print(f"{i}th Learned SFA is bisimilar to the original SFA even after {cpt} added words to a {len(sample)}-word sample ")
-            
+            print("Learned SFA is bisimilar to the original SFA")

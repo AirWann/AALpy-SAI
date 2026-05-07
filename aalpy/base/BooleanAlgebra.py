@@ -555,7 +555,9 @@ class MonotonicAlgebra(BooleanAlgebra[OrderedDomain]):
                     return self._predecessor(predicate.upper)
                 return self._min_elt
             else:
-                raise NotImplementedError("pick_witness for infinite interval not implemented for general OrderedDomain.")
+                if self._min_elt is None:
+                    raise NotImplementedError("Cannot pick witness from infinite interval without min_elt defined in the algebra ! \n CHARACTERISTIC SETS WILL NOT WORK !")
+                return self._min_elt
           # OR : witness from any satisfiable branch
         elif isinstance(predicate, OrPredicate):
             for pred in predicate.predlist:

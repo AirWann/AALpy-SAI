@@ -6,7 +6,20 @@ from aalpy.base.BooleanAlgebra import IntervalPredicate, MonotonicAlgebra, Predi
 import numpy as np
 
 from aalpy.utils import visualize_automaton
-    
+
+
+@dataclass(frozen=True, order=True)
+class SymNum:
+    symbol: str
+    number: int
+    __str__ = lambda self: f"{self.symbol}({self.number})"
+def gen_symnums():
+    letter = np.random.choice(["a", "b", "c", "d", "e"])
+    number = np.random.randint(0, 100)
+    if letter == "a" and number == 0:
+        #redraw 
+        return gen_symnums()
+    return SymNum(letter, number)
 
 def generate_sfa(nb_states, algebra: BooleanAlgebra = IntervalAlgebra(), element_generator = None) -> Sfa:
     """
@@ -181,15 +194,7 @@ if __name__ == "__main__":
     # with open("SAITesting/test_automaton2.pkl", "rb") as f:
     #     sfa = load(f)
     # visualize_automaton(sfa)
-    @dataclass(frozen=True, order=True)
-    class SymNum:
-        symbol: str
-        number: int
-        __str__ = lambda self: f"{self.symbol}({self.number})"
-    def gen_symnums():
-        letter = np.random.choice(["a", "b", "c", "d", "e"])
-        number = np.random.randint(0, 100)
-        return SymNum(letter, number)
+
 
     alg = MonotonicAlgebra[SymNum](min_elt=SymNum("a", 0))
     sfa = generate_sfa(5, alg, element_generator=gen_symnums)
