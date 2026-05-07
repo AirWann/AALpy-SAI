@@ -20,7 +20,11 @@ Anything else, e.g. related to testing/benchmarking, is found in folder [SAITest
 
 Predicate and BooleanAlgebra are [abstract classes](https://docs.python.org/3.14/glossary.html#term-abstract-base-class). To define new ones you'll need to first define what your predicates are in an subclass of Predicate, then define operations around them in a subclass of BooleanAlgebra. You will find an example of such an implementation in IntervalPredicate and IntervalAlgebra. Note that not all functions implemented there are necessary to get a Boolean Algebra : it is sufficient to instantiate all abstract methods of ABCs Predicate and BooleanAlgebra.
 
-Classes OrPredicate (representing an OR of a set of Predicates) and AndPredicate (representing... take a guess) can be used agnostically of what the underlying predicates are.
+Another implemented algebra is MonotonicAlgebra, which is a generalization of IntervalAlgebra. Its predicates are GenIntPredicate(lower,upper), representing an interval [lower,upper[ (GenIntPredicate standing for generalized interval predicate). This works for any domain (= type) that (1) supports comparison operations (2) has a minimal element.
+
+To create an algebra with type MyType and minimal element x, call `MonotonicAlgebra[MyType](min_elt = x)` (the type can also be inferred from x if clear, but i like type hints).
+
+Classes OrPredicate (representing an OR of a set of Predicates) and AndPredicate (representing... take a guess) can be used agnostically of what the underlying predicates are, although they see little use in SAI itself. I cannot yet guarantee everything works well in terms of extracting characteristic samples, as for intervals, these boil down to a disjoint union,which I'd rather represent as different transitions labeled with a single interval.
 
 #### For SFA
 
@@ -42,12 +46,25 @@ To instantiate a SfaState, call `SfaState(id, is_accepting: Bool)` and then edit
 SAI takes in a sample in the form of a set of labeled words. Words are tuples of letter, so this makes the type of a sample `Set[Tuple[Tuple, bool]]`. 
 To create an instance of SAI, call `SAI(sample, algebra, print_info)` : algebra is optional and defaults to IntervalAlgebra(), print_info is optional and defaults to False. Then, to execute the algorithm, call instance.run_SAI(). This returns an SFA.
 
+
 #### Other utilities
 function `visualize_automaton` from `aalpy.utils` allows you to print an SFA to PDF.
 
 [SAITesting/utilities.py](SAITesting/utilities.py) contains a few useful functions that should be self-explanatory (and are commented so as to be) :
  `generate_sfa`, `sfa_to_dfa`, `dfa_to_sfa`,`generate_random_sample`.
 
+A small example class SynNum also is found here, to show how other ordered types can be used.
 Other scripts in that folder are benchmarks to test random sampling, test sai on characteristic samples, compare SAI to neural network models. 
 
 If you need a small sfa, one is pickled in test_automaton2.pkl. Running utilities.py by itself will show you what it is.
+
+## In a nutshell
+Here is the simplest way to generate an automaton, get its characteristic sample and learn from this sample :
+
+```
+alg = IntervalAlgebra()
+sfa = generate_sfa(10,alg)                  %alg is not necessary here as IntervalAlgebra is the default
+sample = sfa.characteristic_sample()
+learned_sfa = SAI(sample,alg,print_info=False).run_SAI()    %same here
+visualize_automaton(learned_sfa, path="./SAITesting/myautomaton")
+```
