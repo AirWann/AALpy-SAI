@@ -41,7 +41,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
     def __str__(self):
          return f"Sfa(initial_state={self.initial_state.state_id}, states={[s.state_id for s in self.states]}, final states={[s.state_id for s in self.states if s.is_accepting]}, transitions={{ {', '.join([f'\n{s.state_id}: [{', '.join([f'({str(p)}, {t.state_id})' for p, t in s.transitions])}]' for s in self.states])} }})"
     def __eq__(self, other):
-        """ this is just a bisimilarity check, not a structural equality check """
+        """ /!\\ this is just a bisimilarity check, not a structural equality check """
         return self.bisimilar(other)
     def __reduce__(self):
     # Preserve both structure and algebra when pickling.
@@ -110,7 +110,7 @@ class Sfa(DeterministicAutomaton[SfaState]):
             if s1.output != s2.output:
                 return requirements[(s1, s2)] if return_cex else False
 
-            # Enabled input regions must match not needed for complete automata
+            # Enabled input regions must match --- not needed for complete automata !
             # disj1 = self.algebra.false()
             # for p1, _ in s1.transitions:
             #     disj1 = self.algebra.or_op(disj1, p1)

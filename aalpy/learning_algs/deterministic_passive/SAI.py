@@ -18,7 +18,7 @@ class SAINode:
         - algebra: the Boolean algebra used for predicates
     """
     __slots__ = ['accepting','rejecting', 'children', 'prefix', 'sample', 'algebra']
-    def __init__(self, children:List[Tuple[Predicate, 'SAINode']]=[], accepting=False, rejecting=False, prefix:Tuple= (), sample:Set[Tuple[Tuple, bool]]=None, algebra: BooleanAlgebra = IntervalAlgebra()):
+    def __init__(self, children:List[Tuple[Predicate, 'SAINode']]=[], accepting=False, rejecting=False, prefix:Tuple= (), sample:Set[Tuple[Tuple, bool]]=set(), algebra: BooleanAlgebra = IntervalAlgebra()):
         self.children = children
         self.prefix = prefix
         self.accepting = accepting
@@ -48,20 +48,6 @@ class SAINode:
     
     def __repr__(self):
         return self.__str__()
-
-def check_sequence(root_node, seq, label):
-    """
-    Checks whether one labeled sequence in the dataset is valid in the current automaton.
-    """
-    node = root_node
-    for symbol in seq:
-        trans = [t for t in node.children if t[0].eval(symbol)]
-        if not trans:
-            raise ValueError(f'No transition for symbol {symbol} from node with prefix {node.prefix}')
-        elif len(trans) > 1:
-            raise ValueError(f'Non-deterministic automaton after prefix {node.prefix} - Transitions :{node.children}')
-        node = trans[0][1]
-    return node.accepting if label else node.rejecting
 
 
 def create_SPTA(data:Set,algebra,prefix=()):
@@ -154,8 +140,8 @@ class SAI:
             qb = min(blue)
             pred, father = self.find_transition_to(qb)
             assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
+
             became_red_flag = False
-            red_save = red.copy()
             # Try merging with red states
             for r in red:
                #try merges and check consistency with data 
