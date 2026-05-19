@@ -3,7 +3,7 @@ from typing import List, Set,Tuple
 from collections import deque
 
 from aalpy.automata.Sfa import Sfa
-from aalpy.base.BooleanAlgebra import GenIntPredicate, IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
+from aalpy.base.BooleanAlgebra import GenIntPredicate, IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate, LetterIntervalAlgebra, LetterIntervalPredicate
 
 @total_ordering
 class SAINode:
@@ -54,9 +54,55 @@ def create_SPTA(data:Set,algebra,prefix=()):
     """
     Create the Symbolic Prefix Tree Acceptor for the given dataset and algebra.
 
-    That is, all transitions are set to True and the "tree" is a linear chain of nodes corresponding to the longest sequence in the dataset. 
-    Each node is labeled as accepting, rejecting, or both according to the labels of sequences in the dataset.
+    For IntervalAlgebra/MonotonicAlgebra, all transitions are set to True and the "tree" is a linear chain of nodes
+    corresponding to the longest sequence in the dataset.
+    For LetterIntervalAlgebra, the tree branches by the first letter and transitions are labeled with letter-specific
+    true predicates.
     """
+    if isinstance(algebra, LetterIntervalAlgebra):
+        def pick_symbol(letter, samples):
+            # Pick a representative (letter, value) to build a stable prefix.
+            candidates = [w[0] for w, _ in samples if len(w) > 0 and w[0][0] == letter]
+            if candidates:
+                try:
+                    return min(candidates)
+                except TypeError:
+                    return candidates[0]
+            return algebra.pick_witness(algebra.letter_true(letter))
+
+        def create_SPTA_rec_letter(data:Set, prefix=()):
+            empty_word_labels = [l for w, l in data if len(w) == 0]
+            accepting = True in empty_word_labels
+            rejecting = False in empty_word_labels
+            node = SAINode(accepting=accepting, rejecting=rejecting, children=[], prefix=prefix, sample=data, algebra=algebra)
+
+            letter_groups = {}
+            for w, l in data:
+                if len(w) == 0:
+                    continue
+                # Group suffixes by their next letter to branch the tree.
+                letter = w[0][0]
+                letter_groups.setdefault(letter, set()).add((w[1:], l))
+
+            letters = list(letter_groups.keys())
+            try:
+                # Keep deterministic ordering when letters are comparable.
+                letters = sorted(letters)
+            except TypeError:
+                pass
+
+            children = []
+            for letter in letters:
+                # Recurse on each letter branch with a letter-specific true predicate.
+                child_data = letter_groups[letter]
+                symbol = pick_symbol(letter, data)
+                child = create_SPTA_rec_letter(child_data, prefix + (symbol,))
+                children.append((algebra.letter_true(letter), child))
+            node.children = children
+            return node
+
+        return create_SPTA_rec_letter(data, prefix)
+
     _, longest_seq = max(((len(seq), seq) for seq, _ in data), key=lambda x: x[0])
     def create_SPTA_rec(data:Set, prefix=(),remaining=()):
         empty_word_labels = [l for w, l in data if len(w) == 0]
@@ -67,6 +113,7 @@ def create_SPTA(data:Set,algebra,prefix=()):
             node = SAINode(accepting=accepting, rejecting=rejecting, children=[], prefix=prefix, sample=data, algebra=algebra)
             return node
         else:
+            # Linear-chain SPTA: advance one symbol along the longest word.
             child_data = {(w[1:], l) for w, l in data if len(w) > 0}
             child = create_SPTA_rec(child_data, prefix + (remaining[0],), remaining[1:])
             node = SAINode(accepting=accepting, rejecting=rejecting, prefix=prefix, sample=data, algebra=algebra)
@@ -235,8 +282,44 @@ class SAI:
             old_pred = [p for p, c in father.children if c is node][0]
         except IndexError:
             raise ValueError(f"Node {node.prefix} not found in father's {father.prefix} children {[c.prefix for _, c in father.children]}")  
+        if isinstance(self.algebra, LetterIntervalAlgebra) and isinstance(old_pred, LetterIntervalPredicate):
+            relevant_words = [s for s in father.sample if len(s[0]) > 0 and old_pred.eval(s[0][0])]
+            # Split on value boundaries while keeping the letter fixed.
+            relevant_values = sorted({
+                s[0][0][1]
+                for s in father.sample
+                if len(s[0]) > 0 and old_pred.eval(s[0][0])
+            })
+
+            if len(relevant_values) < 2:
+                raise ValueError(f"Only one value coming to node {node.prefix} - cannot split")
+
+            original_children = father.children.copy()
+            best_predicate = None
+
+            for value in relevant_values:
+                # Try growing a (-inf, value) interval for this letter.
+                candidate = self.algebra.letter_interval(old_pred.letter, IntervalPredicate(None, value))
+                try:
+                    split_nodes = self.split_transition(node, father, candidate)
+                    is_ok = self.is_consistent([split_nodes[0]])
+                except AssertionError:
+                    is_ok = False
+                finally:
+                    father.children = original_children.copy()
+                if is_ok:
+                    best_predicate = candidate
+            if best_predicate is None:
+                if self.print_info:
+                    print("Relevant words:", relevant_words)
+                raise ValueError(
+                    f"Could not find a split predicate for node with prefix {node.prefix} among candidates {relevant_values}"
+                )
+            return best_predicate
+
         relevant_words = [s for s in father.sample if len(s[0]) > 0 and old_pred.eval(s[0][0])]
-        
+
+        # Classic SAI split: treat inputs as single ordered letters.
         relevant_letters = sorted({
             s[0][0]
             for s in father.sample
@@ -245,7 +328,7 @@ class SAI:
 
         # Need at least 2 distinct letters to create a non-trivial split.
         if len(relevant_letters) < 2:
-             raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
+            raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
 
         original_children = father.children.copy()
         best_predicate = None
@@ -284,7 +367,13 @@ class SAI:
         new_transitions = [(p, c) for p, c in father.children if p != old_predicate]
         
         new_predicate1 = self.algebra.and_op(old_predicate, split_predicate)
-        new_predicate2 = self.algebra.and_op(old_predicate, split_predicate.negate())
+        split_neg = split_predicate.negate()
+        negate_same_letter = getattr(self.algebra, "negate_same_letter", None)
+        if callable(negate_same_letter):
+            candidate = negate_same_letter(split_predicate)
+            if isinstance(candidate, Predicate):
+                split_neg = candidate
+        new_predicate2 = self.algebra.and_op(old_predicate, split_neg)
         assert not self.algebra.is_satisfiable(self.algebra.and_op(new_predicate1, new_predicate2)), f"New predicates {new_predicate1} and {new_predicate2} are not disjoint after splitting on {split_predicate} at node with prefix {node.prefix}"
         #sort suffixes appropriately and create new nodes (SPTA)
         data1 = {(s[1:], l) for s, l in sample if (len(s) > 0 and new_predicate1.eval(s[0]))}

@@ -8,6 +8,8 @@ from aalpy.base.BooleanAlgebra import (
     OrPredicate,
     GenIntPredicate,
     MonotonicAlgebra,
+    LetterIntervalAlgebra,
+    LetterIntervalPredicate,
 )
 
 
@@ -147,6 +149,47 @@ def test_pick_witness_and_false_predicate():
     assert alg.pick_witness(alg.false()) is None
 
 
+def test_letter_interval_predicate_eval_and_negate():
+    alg = LetterIntervalAlgebra({"a", "b"})
+    pred = alg.letter_interval("a", IntervalPredicate(1, 4))
+
+    assert pred.eval(("a", 2))
+    assert not pred.eval(("a", 4))
+    assert not pred.eval(("b", 2))
+
+    neg = pred.negate()
+    assert neg.eval(("a", 0))
+    assert neg.eval(("b", 2))
+    assert not neg.eval(("a", 2))
+
+
+def test_letter_interval_negate_same_letter():
+    alg = LetterIntervalAlgebra({"a", "b"})
+    pred = alg.letter_interval("a", IntervalPredicate(1, 4))
+    neg = alg.negate_same_letter(pred)
+
+    assert neg.eval(("a", 0))
+    assert not neg.eval(("b", 0))
+    assert not neg.eval(("a", 2))
+
+
+def test_letter_interval_minimize_merges_same_letter():
+    alg = LetterIntervalAlgebra({"a"})
+    p1 = alg.letter_interval("a", IntervalPredicate(1, 3))
+    p2 = alg.letter_interval("a", IntervalPredicate(3, 5))
+    merged = alg.minimize_predicate(OrPredicate({p1, p2}))
+
+    assert isinstance(merged, LetterIntervalPredicate)
+    assert merged.interval == IntervalPredicate(1, 5)
+
+
+def test_letter_interval_true_requires_all_letters():
+    alg = LetterIntervalAlgebra({"a", "b"})
+    pred = alg.or_op(alg.letter_true("a"), alg.letter_true("b"))
+    assert alg.is_true(pred)
+    assert not alg.is_true(alg.letter_true("a"))
+
+
 def test_are_equivalent_merges_touching_intervals():
     alg = IntervalAlgebra()
     pred1 = OrPredicate({IntervalPredicate(1, 5), IntervalPredicate(5, 10)})
@@ -257,6 +300,3 @@ def test_monotonic_minimize_custom_ordered_type():
 
 def gen_symnums():
     return SymNum("a", np.random.randint(0, 100))
-
-alg = MonotonicAlgebra[SymNum](min_elt=SymNum("a", 0))
-sfa = generate_sfa(10, alg, element_generator=gen_symnums)

@@ -3,7 +3,7 @@ Abstract base classes for Predicates and Boolean Algebras used in Symbolic Autom
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, Optional, Protocol, Self, Set, Tuple, TypeVar
+from typing import Any, Generic, Hashable, Optional, Protocol, Self, Set, Tuple, TypeVar
 
 Domain = TypeVar('Domain')
 class Ordered(Protocol):
@@ -14,6 +14,7 @@ class Ordered(Protocol):
     def __ge__(self, other: Self) -> bool: ...
 
 OrderedDomain = TypeVar('OrderedDomain', bound=Ordered) 
+LetterType = TypeVar('LetterType', bound=Hashable)
 class Predicate(ABC, Generic[Domain]):
     """
     Abstract base class for predicates used in symbolic automata
@@ -402,6 +403,199 @@ class IntervalAlgebra(BooleanAlgebra[int]):
             return acc 
         else:
             raise NotImplementedError("Minimization not implemented for this predicate type.")
+
+
+def _reduce_or(predicates: Set[Predicate]) -> Predicate:
+    if not predicates:
+        return OrPredicate(set())
+    if len(predicates) == 1:
+        return next(iter(predicates))
+    return OrPredicate(predicates)
+
+
+def _letter_predicates_for_interval(
+    letter: LetterType,
+    interval_predicate: Predicate,
+    alphabet: Set[LetterType],
+    interval_alg: IntervalAlgebra,
+) -> Set[Predicate]:
+    minimized = interval_alg.minimize_predicate(interval_predicate)
+    if isinstance(minimized, IntervalPredicate):
+        if not interval_alg.is_satisfiable(minimized):
+            return set()
+        return {LetterIntervalPredicate(letter, minimized, alphabet)}
+    if isinstance(minimized, OrPredicate):
+        predicates: Set[Predicate] = set()
+        for pred in minimized.predlist:
+            if isinstance(pred, IntervalPredicate) and interval_alg.is_satisfiable(pred):
+                predicates.add(LetterIntervalPredicate(letter, pred, alphabet))
+        return predicates
+    return set()
+
+
+class LetterIntervalPredicate(Predicate[Tuple[LetterType, int]]):
+    """
+    Predicate over (letter, value) pairs: letter must match and value must satisfy the interval.
+    """
+
+    def __init__(
+        self,
+        letter: LetterType,
+        interval: IntervalPredicate,
+        alphabet: Optional[Set[LetterType]] = None,
+    ):
+        self.letter = letter
+        self.interval = interval
+        self.alphabet = alphabet
+
+    def eval(self, element: Tuple[LetterType, int]) -> bool:
+        if element is None or not isinstance(element, tuple) or len(element) != 2:
+            raise ValueError("Expected a (letter, value) tuple for LetterIntervalPredicate.")
+        letter, value = element
+        return letter == self.letter and self.interval.eval(value)
+
+    def negate_same_letter(self) -> Predicate:
+        if self.alphabet is None:
+            raise ValueError("Alphabet is required to negate LetterIntervalPredicate.")
+        interval_alg = IntervalAlgebra()
+        predicates = _letter_predicates_for_interval(
+            self.letter, self.interval.negate(), self.alphabet, interval_alg
+        )
+        return _reduce_or(predicates)
+
+    def negate(self) -> Predicate:
+        if self.alphabet is None:
+            raise ValueError("Alphabet is required to negate LetterIntervalPredicate.")
+        interval_alg = IntervalAlgebra()
+        predicates = _letter_predicates_for_interval(
+            self.letter, self.interval.negate(), self.alphabet, interval_alg
+        )
+        for letter in self.alphabet:
+            if letter == self.letter:
+                continue
+            predicates.add(LetterIntervalPredicate(letter, IntervalPredicate(None, None), self.alphabet))
+        return _reduce_or(predicates)
+
+    def __repr__(self) -> str:
+        return f"({self.letter}, {self.interval})"
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, LetterIntervalPredicate):
+            return False
+        return self.letter == other.letter and self.interval == other.interval
+
+    def __hash__(self) -> int:
+        return hash((self.letter, self.interval))
+
+
+class LetterIntervalAlgebra(BooleanAlgebra[Tuple[LetterType, int]]):
+    """
+    Boolean algebra over (letter, value) with a finite alphabet and interval predicates on value.
+    """
+
+    def __init__(self, alphabet: Set[LetterType]):
+        if not alphabet:
+            raise ValueError("Alphabet must be a non-empty set.")
+        self.alphabet = set(alphabet)
+        self._interval_alg = IntervalAlgebra()
+
+    def _iter_letters(self):
+        return list(self.alphabet)
+
+    def _value_predicate_for_letter(self, predicate: Predicate, letter: LetterType) -> Predicate:
+        if isinstance(predicate, LetterIntervalPredicate):
+            if predicate.letter != letter:
+                return self._interval_alg.false()
+            return predicate.interval
+        if isinstance(predicate, OrPredicate):
+            return OrPredicate(
+                {self._value_predicate_for_letter(p, letter) for p in predicate.predlist}
+            )
+        if isinstance(predicate, AndPredicate):
+            return AndPredicate(
+                {self._value_predicate_for_letter(p, letter) for p in predicate.predlist}
+            )
+        raise ValueError(f"Unsupported predicate for letter algebra: {predicate}")
+
+    def letter_true(self, letter: LetterType) -> LetterIntervalPredicate:
+        return LetterIntervalPredicate(letter, IntervalPredicate(None, None), self.alphabet)
+
+    def letter_interval(self, letter: LetterType, interval: IntervalPredicate) -> LetterIntervalPredicate:
+        return LetterIntervalPredicate(letter, interval, self.alphabet)
+
+    def negate_same_letter(self, predicate: Predicate) -> Predicate:
+        if not isinstance(predicate, LetterIntervalPredicate):
+            raise ValueError("negate_same_letter expects a LetterIntervalPredicate.")
+        return predicate.negate_same_letter()
+
+    def true(self) -> Predicate:
+        predicates: Set[Predicate] = set()
+        for letter in self.alphabet:
+            predicates.add(self.letter_true(letter))
+        return _reduce_or(predicates)
+
+    def false(self) -> Predicate:
+        return OrPredicate(set())
+
+    def and_op(self, pred1: Predicate, pred2: Predicate) -> Predicate:
+        if isinstance(pred1, LetterIntervalPredicate) and isinstance(pred2, LetterIntervalPredicate):
+            if pred1.letter != pred2.letter:
+                return self.false()
+            interval = self._interval_alg.and_op(pred1.interval, pred2.interval)
+            predicates = _letter_predicates_for_interval(
+                pred1.letter, interval, self.alphabet, self._interval_alg
+            )
+            return _reduce_or(predicates)
+        return AndPredicate({pred1, pred2})
+
+    def or_op(self, pred1: Predicate, pred2: Predicate) -> Predicate:
+        if isinstance(pred1, LetterIntervalPredicate) and isinstance(pred2, LetterIntervalPredicate):
+            if pred1.letter == pred2.letter:
+                interval_or = self._interval_alg.or_op(pred1.interval, pred2.interval)
+                predicates = _letter_predicates_for_interval(
+                    pred1.letter, interval_or, self.alphabet, self._interval_alg
+                )
+                return _reduce_or(predicates)
+        return OrPredicate({pred1, pred2})
+
+    def is_satisfiable(self, predicate: Predicate) -> bool:
+        for letter in self._iter_letters():
+            value_pred = self._value_predicate_for_letter(predicate, letter)
+            minimized = self._interval_alg.minimize_predicate(value_pred)
+            if self._interval_alg.is_satisfiable(minimized):
+                return True
+        return False
+
+    def is_true(self, predicate: Predicate) -> bool:
+        for letter in self._iter_letters():
+            value_pred = self._value_predicate_for_letter(predicate, letter)
+            minimized = self._interval_alg.minimize_predicate(value_pred)
+            if not self._interval_alg.is_true(minimized):
+                return False
+        return True
+
+    def are_equivalent(self, pred1: Predicate, pred2: Predicate) -> bool:
+        return self.minimize_predicate(pred1) == self.minimize_predicate(pred2)
+
+    def pick_witness(self, predicate: Predicate) -> Optional[Tuple[LetterType, int]]:
+        for letter in self._iter_letters():
+            value_pred = self._value_predicate_for_letter(predicate, letter)
+            minimized = self._interval_alg.minimize_predicate(value_pred)
+            if self._interval_alg.is_satisfiable(minimized):
+                value = self._interval_alg.pick_witness(minimized)
+                if value is not None:
+                    return (letter, value)
+        return None
+
+    def minimize_predicate(self, predicate: Predicate) -> Predicate:
+        predicates: Set[Predicate] = set()
+        for letter in self._iter_letters():
+            value_pred = self._value_predicate_for_letter(predicate, letter)
+            minimized = self._interval_alg.minimize_predicate(value_pred)
+            predicates.update(
+                _letter_predicates_for_interval(letter, minimized, self.alphabet, self._interval_alg)
+            )
+        return _reduce_or(predicates)
         
 
 class GenIntPredicate(Predicate[OrderedDomain]):
