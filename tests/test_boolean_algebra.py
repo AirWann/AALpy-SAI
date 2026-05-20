@@ -267,13 +267,11 @@ def test_monotonic_minimize_empty_predicate():
 
 from dataclasses import dataclass
 
-@dataclass(frozen=True, order=True)
-class SymNum:
-    symbol: str
-    number: int
+
 
 
 def test_monotonic_minimize_custom_ordered_type():
+    from SAITesting.utilities import SymNum, gen_symnums
     alg = MonotonicAlgebra[SymNum](min_elt=SymNum("a", 0))
     a1 = SymNum("a", 1)
     a3 = SymNum("a", 3)
@@ -297,6 +295,3 @@ def test_monotonic_minimize_custom_ordered_type():
     # Intersection: (a1, b4) AND (a3, b1) = (a3, b1)
     inter = alg.minimize_predicate(AndPredicate({GenIntPredicate(a1, b4), GenIntPredicate(a3, b1)}))
     assert inter == GenIntPredicate(a3, b1)
-
-def gen_symnums():
-    return SymNum("a", np.random.randint(0, 100))

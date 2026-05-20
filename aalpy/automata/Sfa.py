@@ -229,8 +229,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
             disj = self.algebra.false()
             for pred, _ in s.transitions:
                 disj = self.algebra.or_op(disj, pred)
-            missing = self.algebra.minimize_predicate(disj.negate())
-            s.transitions.append((missing, sink))
+            if not self.algebra.is_true(self.algebra.minimize_predicate(disj)):
+                missing = self.algebra.minimize_predicate(disj.negate())
+                s.transitions.append((missing, sink))
         if sink not in self.states:
             self.states.append(sink)
     

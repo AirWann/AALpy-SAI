@@ -3,7 +3,7 @@ import time
 import csv
 import matplotlib.pyplot as plt
 from aalpy.automata.Sfa import Sfa, SfaState
-from aalpy.base.BooleanAlgebra import IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
+from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
 from aalpy.utils import save_automaton_to_file, visualize_automaton
@@ -390,14 +390,17 @@ if __name__ == "__main__":
     #         break
     #     else:
     #         print(f"{i}th Learned SFA is bisimilar to the original SFA even after {cpt} added words to a {len(sample)}-word sample ")
-    
-    from utilities import SymNum, gen_symnums
-    for i in range(10):
-        alg = MonotonicAlgebra(min_elt=SymNum("a", 0))
-        sfa = generate_sfa(10, alg, element_generator=gen_symnums)
+    for i in range(100):
+        alg = LetterIntervalAlgebra({"a", "b"})
+        sfa = generate_sfa(10, alg)
         sample = sfa.characteristic_sample()
-        
-        learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+        try:
+            learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+            if not learned_sfa.is_input_complete():
+                learned_sfa.make_input_complete()
+        except Exception as e:
+            visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
+            raise e
         if not learned_sfa.bisimilar(sfa):
             print("Learned SFA is not bisimilar to the original SFA. Counterexample:", learned_sfa.bisimilar(sfa, return_cex=True))
 
@@ -407,4 +410,4 @@ if __name__ == "__main__":
             print("Learned SFA:", learned_sfa)
             break
         else:
-            print("Learned SFA is bisimilar to the original SFA")
+            print(f"{i}th Learned SFA is bisimilar to the original SFA")

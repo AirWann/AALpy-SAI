@@ -378,6 +378,8 @@ class IntervalAlgebra(BooleanAlgebra[int]):
                 return next(iter(result_intervals))
             return OrPredicate(result_intervals)
         elif isinstance(predicate, AndPredicate):
+            if predicate.predlist == set():
+                return self.true()
             minimized_preds = [self.minimize_predicate(pred) for pred in predicate.predlist]
             acc = minimized_preds[0] if isinstance(minimized_preds[0], OrPredicate) else OrPredicate({minimized_preds[0]})
             for pred in minimized_preds[1:]:

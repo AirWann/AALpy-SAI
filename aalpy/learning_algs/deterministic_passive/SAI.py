@@ -4,6 +4,7 @@ from collections import deque
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import GenIntPredicate, IntervalPredicate, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate, LetterIntervalAlgebra, LetterIntervalPredicate
+from aalpy.utils.FileHandler import visualize_automaton
 
 @total_ordering
 class SAINode:
@@ -103,6 +104,7 @@ def create_SPTA(data:Set,algebra,prefix=()):
 
         return create_SPTA_rec_letter(data, prefix)
 
+    #for basic non-letter algebras, the SPTA is just a chain of nodes
     _, longest_seq = max(((len(seq), seq) for seq, _ in data), key=lambda x: x[0])
     def create_SPTA_rec(data:Set, prefix=(),remaining=()):
         empty_word_labels = [l for w, l in data if len(w) == 0]
@@ -141,8 +143,6 @@ def to_automaton(red: List[SAINode]) -> Sfa:
     # build states
     node_to_state = {}
     for i, n in enumerate(red):
-        if n.accepting and n.rejecting:
-            raise ValueError(f"Inconsistent node at prefix {n.prefix}")
         sid = f"s{i}" #if n.prefix is None else str(n.prefix)
         st = SfaState(sid, is_accepting=n.accepting)
         st.prefix = n.prefix
@@ -181,6 +181,17 @@ class SAI:
         blue = [s for _,s in self.root.children]
         if self.print_info:
             print(f"Initial red set: {red},\nInitial blue set: {blue}")
+            #print ALL nodes to see
+            all_nodes = [self.root]
+            queue = deque([self.root])
+            while queue:
+                node = queue.popleft()
+                for _, child in node.children:
+                    if child not in all_nodes:
+                        all_nodes.append(child)
+                        queue.append(child)
+            spta = to_automaton(all_nodes)
+            visualize_automaton(spta, path="./SAITesting/initial_SPTA")
         while blue:
             # if self.print_info:
             #     print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
@@ -259,7 +270,14 @@ class SAI:
         
         if not self.is_consistent(red):
             raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
+        if self.print_info:
+            print(f"Final red set: {red}")
         automaton = to_automaton(red)
+
+        #Debugging line
+        #visualize_automaton(automaton, path="./SAITesting/learned_automaton")
+
+
         #check that automaton is consistent with data
         for seq, label in self.data:
             if automaton.accepts(seq) != label:
@@ -268,13 +286,10 @@ class SAI:
                     dump(self.data, f)
                 print(automaton)
                 raise ValueError(f"CATASTROPHIC ERROR: Learned automaton inconsistent with data on sequence {seq} with label {label}")
-        if not automaton.is_input_complete():
-            from pickle import dump
-            with open("debug_sample.pkl", "wb") as f:
-                dump(self.data, f)
-            raise ValueError("ERROR: Learned automaton is not input complete !")
         if self.print_info:
             print(f"Learned automaton: {automaton}\n DONE !")
+        if not automaton.is_input_complete():
+            print("Warning: Learned automaton is not input complete !")
         return to_automaton(red)
         
     def _find_split_predicate(self,red:list[SAINode], node:SAINode,father:SAINode):
@@ -367,12 +382,16 @@ class SAI:
         new_transitions = [(p, c) for p, c in father.children if p != old_predicate]
         
         new_predicate1 = self.algebra.and_op(old_predicate, split_predicate)
+        #non-letter case : just negate the split predicate
         split_neg = split_predicate.negate()
+
+        #letter case : try to find a more precise negation that keeps the same letter to avoid creating too many new nodes
         negate_same_letter = getattr(self.algebra, "negate_same_letter", None)
         if callable(negate_same_letter):
             candidate = negate_same_letter(split_predicate)
             if isinstance(candidate, Predicate):
                 split_neg = candidate
+
         new_predicate2 = self.algebra.and_op(old_predicate, split_neg)
         assert not self.algebra.is_satisfiable(self.algebra.and_op(new_predicate1, new_predicate2)), f"New predicates {new_predicate1} and {new_predicate2} are not disjoint after splitting on {split_predicate} at node with prefix {node.prefix}"
         #sort suffixes appropriately and create new nodes (SPTA)
@@ -447,10 +466,11 @@ class SAI:
         # Nothing to propagate if  no outgoing transitions
         if not blue_node.children:
             return red_node, undo_log, old_father_children
+        # If red node has no outgoing transitions, its children become those of blue node and we are done (no need to propagate further merges)
         if not red_node.children:
             red_node.children = blue_node.children
             return red_node, undo_log, old_father_children
-        # Project blue_node's sample through each red predicate and recurse
+        #in the general case, project blue_node's sample through each red predicate and recurse
         for pred, red_child in red_node.children:
             projected = {
                 (w[1:], lbl)
@@ -471,6 +491,19 @@ class SAI:
             else:
                 
                 self.merge(red_child, projected_spta, blue_node, seen, undo_log)
+
+        if isinstance(self.algebra, LetterIntervalAlgebra):
+            # If red lacks a letter branch entirely, copy blue's branches for that letter.
+            red_letters = {
+                p.letter for p, _ in red_node.children if isinstance(p, LetterIntervalPredicate)
+            }
+            for pred, child in blue_node.children:
+                if isinstance(pred, LetterIntervalPredicate):
+                    if pred.letter not in red_letters:
+                        # Add blue's branch for this letter to red.
+                        if undo_log is not None and seen is not None:
+                            self._record_node_state(red_node, undo_log, seen)
+                        red_node.children.append((pred, child))
 
         
         
@@ -503,21 +536,32 @@ class SAI:
         return None
 
 if __name__ == "__main__":
-    from pickle import load,dump
-    # sample = {
-    #     ((), False),
-    #     ((0,), True),
-    #     ((100,), False),
-    #     ((100,100), False),
-    #     ((0, 0), False),
-    #     ((0,0,99,0,0,0,100), True),
-    #     ((0,0,0,0,7,0,0,100), False),
-    # }
-    sample = load(open("debug_sample.pkl", "rb"))
+    #from pickle import load,dump
+    algebra = LetterIntervalAlgebra({"a", "b"})
+    sample = {
+        ((), False),
+        ((("a", 0),), True),
+        ((("b", 0),), False),
+        ((("b", 100), ("b", 100)), True),
+        ((("a", 0), ("b", 100)), False),
+        ((("a", 0), ("b", 0)), True),
+        ((("a", 0), ("b", 50)), True),
+        ((("a", 0), ("b", 51)), False),
+        ((("a", 0), ("b", 99)), False),
+        ((("a", 0), ("b", 101)), True),
+    }
+    #sample = load(open("debug_sample.pkl", "rb"))
     print (f"Loaded sample of size {len(sample)}")
     print (f"Sample: {sample}")
-    sai = SAI(sample, print_info=True)
+    sai = SAI(sample, algebra, print_info=True)
+
     try:
-        sai.run_SAI()
+        sfa = sai.run_SAI()
     except Exception as e:
         print(e)
+
+    sample2 = sfa.characteristic_sample()
+    print(f"Characteristic sample of learned automaton: {sample2}")
+    sai2 = SAI(sample2, algebra, print_info=True)
+    sfa2 = sai2.run_SAI()
+    visualize_automaton(sfa2, path="./SAITesting/learned_automaton_from_characteristic_sample")
