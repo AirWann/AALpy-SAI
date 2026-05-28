@@ -40,10 +40,9 @@ class SAINode:
             return False
 
     def __eq__(self, other):
-        return self.prefix == other.prefix
-
+        return self is other
     def __hash__(self):
-        return self.prefix.__hash__() 
+        return id(self)
     def __str__(self) -> str:
         return f"Node(prefix={self.prefix}, accepting={self.accepting}, rejecting={self.rejecting}, children={[(str(p), c.prefix) for p, c in self.children]})"
     
@@ -162,6 +161,20 @@ def to_automaton(red: List[SAINode]) -> Sfa:
 
     return Sfa(node_to_state[root_node], list(node_to_state.values()), algebra=algebra)
 
+def see_all_nodes(root: SAINode):
+    see_all_nodes.counter += 1
+    all_nodes = [root]
+    queue = deque([root])
+    while queue:
+        node = queue.popleft()
+        for _, child in node.children:
+            if child not in all_nodes:
+                all_nodes.append(child)
+                queue.append(child)
+    automaton = to_automaton(all_nodes)
+    visualize_automaton(automaton, path=f"./SAITesting/automaton_during_SAI_{see_all_nodes.counter}")
+
+see_all_nodes.counter = 0
 
 class SAI:
     def __init__(self, data:Set[Tuple[Tuple, bool]], algebra:BooleanAlgebra = IntervalAlgebra(), print_info:bool=False):
@@ -182,66 +195,54 @@ class SAI:
         if self.print_info:
             print(f"Initial red set: {red},\nInitial blue set: {blue}")
             #print ALL nodes to see
-            all_nodes = [self.root]
-            queue = deque([self.root])
-            while queue:
-                node = queue.popleft()
-                for _, child in node.children:
-                    if child not in all_nodes:
-                        all_nodes.append(child)
-                        queue.append(child)
-            spta = to_automaton(all_nodes)
-            visualize_automaton(spta, path="./SAITesting/initial_SPTA")
+            see_all_nodes(self.root)
         while blue:
-            # if self.print_info:
-            #     print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
-            qb = min(blue)
-            pred, father = self.find_transition_to(qb)
-            assert father in red, f"Father node {father.prefix} of min blue node {qb.prefix} not in red"
+            if self.print_info:
+                print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
+            #blue is sorted, so the min is first
+            qb = blue[0]
+
+            #remove stale blue nodes whose parent has been merged into red and they are no longer reachable
+            father = next((r for r in red if any(c == qb for _, c in r.children)), None)
 
             became_red_flag = False
             # Try merging with red states
-            for r in red:
+            for r in red if father is not None else []:
                #try merges and check consistency with data 
                 if r.accepting and qb.rejecting or r.rejecting and qb.accepting:
                     #don't even try
                     continue
                 merged, undo_log, old_father_children = self.merge(
-                    r, qb.shallow_copy(), father
+                    r, qb, father
                 )
                 if self.is_consistent(red+[merged]):
                     #merge is accepted
                     became_red_flag = True
                     if merged not in red:
                         red.append(merged)
-                    blue.remove(qb)
-                    new_blue = [s for _,s in merged.children if s not in red and s not in blue]
-                    blue.extend(new_blue)
                     if self.print_info:
                         print(f"Merged {qb.prefix} into {r.prefix} resulting in {merged.prefix}")
                     
                     break
                 else:
                     #undo merge
-                    if father is not None:
-                        father.children = old_father_children
-                    for node, acc, rej, sample in reversed(undo_log):
+                    for node, acc, rej, sample, children in reversed(undo_log):
                         node.accepting = acc
                         node.rejecting = rej
                         node.sample = sample
+                        node.children = children
+                    if father is not None:
+                        father.children = old_father_children
             #try coloring red if consistent with data
             if not became_red_flag:
                 if self.is_consistent(red+[qb]):
                     became_red_flag = True
                     if qb not in red:
                         red.append(qb)
-                    blue.remove(qb)
-                    new_blue = [s for _,s in qb.children if s not in red and s not in blue]
-                    blue.extend(new_blue)
                     if self.print_info:
                         print(f"Colored {qb.prefix} red")
             #split so the new qb can become red
-            if not became_red_flag:
+            if not became_red_flag and father is not None:
                 
                 if self.print_info:
                     print(f"Trying to split node {qb.prefix} with father {father.prefix if father else None}")
@@ -251,6 +252,7 @@ class SAI:
                     print(f"Error occurred while finding split predicate: {e}")
                     print(f"Red set: {red}")
                     print(f"Blue set: {blue}")
+                    see_all_nodes(self.root)
                     import pickle
                     with open("debug_sample.pkl", "wb") as f:
                         pickle.dump(self.data, f)
@@ -260,13 +262,14 @@ class SAI:
                 if self.print_info:
                     print(f"Splitting on predicate {split_pred} for node {qb.prefix}")
                 new_nodes = self.split_transition(qb, father, split_pred)
-                blue.remove(qb)
                 #find prefixes of new nodes to label them correctly
                 for n in new_nodes:
                     pred_n = [p for p, c in father.children if c is n][0]
                     n.prefix = father.prefix + (self.algebra.pick_witness(pred_n),)
                     #TODO this is a hack
-                blue.extend(new_nodes)
+
+            # Recompute blue nodes as non-red children of red states.
+            blue = sorted({s for r in red for _, s in r.children if s not in red})
         
         if not self.is_consistent(red):
             raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
@@ -300,13 +303,16 @@ class SAI:
         if isinstance(self.algebra, LetterIntervalAlgebra) and isinstance(old_pred, LetterIntervalPredicate):
             relevant_words = [s for s in father.sample if len(s[0]) > 0 and old_pred.eval(s[0][0])]
             # Split on value boundaries while keeping the letter fixed.
+            # s[0][0] is a tuple (letter, value), we want to split on the value while keeping the letter fixed.
             relevant_values = sorted({
                 s[0][0][1]
-                for s in father.sample
-                if len(s[0]) > 0 and old_pred.eval(s[0][0])
+                for s in relevant_words
             })
 
             if len(relevant_values) < 2:
+                print("\n")
+                print(f"node sample: {node.sample}")
+                print("\n")
                 raise ValueError(f"Only one value coming to node {node.prefix} - cannot split")
 
             original_children = father.children.copy()
@@ -343,6 +349,7 @@ class SAI:
 
         # Need at least 2 distinct letters to create a non-trivial split.
         if len(relevant_letters) < 2:
+            print(f"Relevant words for splitting node {node.prefix} with father {father.prefix}: {relevant_words}")
             raise ValueError(f"Only one word coming to node {node.prefix} - cannot split")
 
         original_children = father.children.copy()
@@ -428,7 +435,7 @@ class SAI:
         if node in seen:
             return
         seen.add(node)
-        undo_log.append((node, node.accepting, node.rejecting, node.sample))
+        undo_log.append((node, node.accepting, node.rejecting, node.sample, list(node.children)))
     
     def merge(self, red_node:SAINode, blue_node:SAINode, blue_father:SAINode=None, seen =None, undo_log=None):
         """
@@ -477,14 +484,13 @@ class SAI:
                 for w, lbl in blue_sample
                 if len(w) > 0 and pred.eval(w[0])
             }
-            #if no sample is projected, no merge to do. else pick the first letter of any word
+            #if no sample is projected, no merge to do. else pick a witness for the predicate
             if not projected:
                 continue
             else:
-                any_word = next(iter(projected))[0]
-                first_letter = any_word[0] if len(any_word) > 0 else 9999999 #TODO this is a horrible hack
+                letter = self.algebra.pick_witness(pred)
 
-            projected_spta = create_SPTA(projected, self.algebra,prefix=blue_node.prefix+(first_letter,))
+            projected_spta = create_SPTA(projected, self.algebra,prefix=blue_node.prefix+(letter,))
             if blue_node == red_child:
                 #the recursive merge is going to be into red
                 self.merge(red_node, projected_spta, red_node, seen, undo_log)

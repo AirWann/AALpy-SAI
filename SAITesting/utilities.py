@@ -40,7 +40,7 @@ def generate_sfa(nb_states, algebra: BooleanAlgebra = IntervalAlgebra(), element
         s = states[i]
         if isinstance(algebra, LetterIntervalAlgebra):
             for letter in algebra.alphabet:
-                nb_trans = 2 #np.random.randint(1, nb_states)
+                nb_trans = np.random.randint(1, (nb_states//len(algebra.alphabet))//2+3)
                 bounds = sorted(np.random.choice(range(0, nb_trans*200), max(0, nb_trans-1), replace=False))
                 bounds.append(None)
                 for i, b in enumerate(bounds):
