@@ -390,24 +390,45 @@ if __name__ == "__main__":
     #         break
     #     else:
     #         print(f"{i}th Learned SFA is bisimilar to the original SFA even after {cpt} added words to a {len(sample)}-word sample ")
-    for i in range(100):
-        alg = LetterIntervalAlgebra({"a", "b"})
-        sfa = generate_sfa(10, alg)
+    from_pickle = False
+    if from_pickle:
+        sfa = load(open("./SAITesting/test_automaton_letter_interval.pkl", "rb"))
+        visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
         sample = sfa.characteristic_sample()
-        try:
-            learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
-            if not learned_sfa.is_input_complete():
-                learned_sfa.make_input_complete()
-        except Exception as e:
-            visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
-            raise e
-        if not learned_sfa.bisimilar(sfa):
-            print("Learned SFA is not bisimilar to the original SFA. Counterexample:", learned_sfa.bisimilar(sfa, return_cex=True))
+        print("Loaded sample of size:", len(sample), "\nSample:", sorted(list(sample), key=lambda x: (len(x[0]), x[0])))
+        learned_sfa = SAI(sample, algebra=LetterIntervalAlgebra({"a", "b", "c", "d", "e"}), print_info=True).run_SAI()
+        visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
+    else:
+        nb_iters = 100
+        nb_states = 10
+        alph_size = 5
+        alphabet = "abcdefghijklmnopqrstuvwxyz"
+        for i in range(nb_iters):
+            alg = LetterIntervalAlgebra({alphabet[j] for j in range(alph_size)})
+            sfa = generate_sfa(nb_states, alg)
+            sample = sfa.characteristic_sample()
+            try:
+                learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+                if not learned_sfa.is_input_complete():
+                    learned_sfa.make_input_complete()
+            except Exception as e:
+                from pickle import dump
+                visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
+                dump(sfa, open("./SAITesting/test_automaton_letter_interval.pkl", "wb"))
+                raise e
+            if not learned_sfa.bisimilar(sfa):
+                print("Learned SFA is not bisimilar to the original SFA. Counterexample:", learned_sfa.bisimilar(sfa, return_cex=True))
 
-            visualize_automaton(sfa, path="./SAITesting/test_automaton_modified_sample")
-            visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_modified_sample")
-            print("Original SFA:", sfa)
-            print("Learned SFA:", learned_sfa)
-            break
-        else:
-            print(f"{i}th Learned SFA is bisimilar to the original SFA")
+                visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
+                visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
+                print("Original SFA:", sfa)
+                print("Learned SFA:", learned_sfa)
+                from pickle import dump
+                dump(sfa, open("./SAITesting/test_automaton_letter_interval.pkl", "wb"))
+                break
+            else:
+                print(f"{i}th Learned SFA is bisimilar to the original SFA")
+                if i == nb_iters-1:
+                    print("All iterations succeeded without bisimilarity issues. Last automaton and learned automaton visualized.")
+                    visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
+                    visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
