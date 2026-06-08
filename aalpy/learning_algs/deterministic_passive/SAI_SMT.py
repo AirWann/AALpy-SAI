@@ -111,6 +111,11 @@ class SMTIntervalEncoding:
     """
 
     def __init__(self, data, state_num, interval_num):
+        assert state_num > 0, "The number of states must be positive."
+        assert interval_num > 1, (
+            "The number of intervals per edge must be greater than 1."
+        )
+
         self.state_num = state_num
         self.interval_num = interval_num
         # The maximum integer in the sample bounds the possible intervals.
@@ -171,7 +176,9 @@ class SMTIntervalEncoding:
         """
         self.x = [Int(f"x_{node}") for node in range(self.apta.size())]
         # Projects an APTA node unto a state of the separating SFA.
-        for node in range(self.apta.size()):
+        # Node 0 is the initial state.
+        self.solver.add(self.x[0] == 0)
+        for node in range(1, self.apta.size()):
             self.solver.add(0 <= self.x[node], self.x[node] < self.state_num)
 
     def acceptance_variables(self):
