@@ -5,9 +5,8 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalPredicate
-from SAI import create_SPTA
 
-from cvc5.pythonic import *
+from cvc5.pythonic import Int, Bool, Solver, Or, Implies, Not, And
 
 
 IntWord = Tuple[int, ...]
@@ -15,15 +14,15 @@ LabeledIntWord = Tuple[Sequence[int], bool]
 
 
 @dataclass
-class SAPTANode:
+class APTANode:
     prefix: IntWord
     children: Dict[int, int] = field(default_factory=dict)
     label: Optional[bool] = None
 
 
-class SAPTA:
+class APTA:
     def __init__(self, data: Iterable[LabeledIntWord]):
-        self.node_list = [SAPTANode(prefix=())]
+        self.node_list = [APTANode(prefix=())]
         for word, acceptance in data:
             self.insert(word, acceptance)
 
@@ -34,13 +33,13 @@ class SAPTA:
         current_node = 0
         for symbol in word:
             if symbol not in self.node_list[current_node].children:
-                # Create a new node for the prefix extended by the symbol
+                # Create a new node for the prefix extended by the symbol.
                 self.node_list.append(
-                    SAPTANode(
+                    APTANode(
                         prefix=self.node_list[current_node].prefix + (symbol,)
                     )
                 )
-                # Link the current node to the new node via the symbol
+                # Link the current node to the new node via the symbol.
                 self.node_list[current_node].children[symbol] = (
                     len(self.node_list) - 1
                 )
@@ -71,25 +70,25 @@ class SMTIntervalEncoding:
         self.state_num = state_num
         self.interval_num = interval_num
         self.max_value = max_value
-        # Create the SPTA from the data.
-        self.sapta = SAPTA(data)
-        # Initialize the SMT solver
+        # Create the APTA from the data.
+        self.apta = APTA(data)
+        # Initialize the SMT solver.
         self.solver = Solver()
-        # Initialize the various variable lists
+        # Initialize the various variable lists.
         self.l = []
         self.u = []
         self.f = []
         self.x = []
 
-    def encode_state_variables(self):
-        self.f = [Bool(f"acc_{i}") for i in range(self.state_num)]
+    def interval_variables(self):
+        """
+        Defines the interval variables and their direct domain constraints.
+        l[i][j][k] and u[i][j][k] represent the lower and upper bounds of
+        the k-th interval on the edge from state i to state j.
 
-    def encode_interval_variables(self):
-        # Initialize the interval variables: l[i][j][k] and u[i][j][k] represent
-        # the lower and upper bounds of the k-th interval on the edge from state
-        # i to state j.
-        # Note that the encoding is lazy: it may be that the lower bound is
-        # bigger than the upper bound. The interval is then meant to be empty.
+        Note that the encoding is lazy: it may be that the lower bound is
+        bigger than the upper bound; the interval is then meant to be empty.
+        """
         self.l = [
             [
                 [Int(f"l_{i},{j},{k}") for k in range(self.interval_num)]
@@ -104,49 +103,106 @@ class SMTIntervalEncoding:
             ]
             for i in range(self.state_num)
         ]
-        # Constraint: set up the interval bounds
-        for i, j1, k1 in product(
+        # Domain constraints to set up the interval bounds.
+        for i, j, k in product(
             range(self.state_num),
             range(self.state_num),
             range(self.interval_num),
         ):
             self.solver.add(
-                self.l[i][j1][k1] >= 0,
-                self.l[i][j1][k1] <= self.max_value,
+                self.l[i][j][k] >= 0,
+                self.l[i][j][k] <= self.max_value,
             )
             self.solver.add(
-                self.u[i][j1][k1] >= 0,
-                self.u[i][j1][k1] <= self.max_value,
+                self.u[i][j][k] >= 0,
+                self.u[i][j][k] <= self.max_value,
             )
-            # Constraint: guarantee determinism, i.e. intervals on different
-            # edges cannot intersect.
+
+    def apta_variables(self):
+        """
+        Defines the APTA state variables and their direct domain constraints.
+        x[node] = i if the word labelling node reaches state i of the
+        separating SFA.
+        """
+        self.x = [Int(f"x_{node}") for node in range(self.apta.size())]
+        # Projects an APTA node unto a state of the separating SFA.
+        for node in range(self.apta.size()):
+            self.solver.add(0 <= self.x[node], self.x[node] < self.state_num)
+
+    def acceptance_variables(self):
+        """
+        Defines the acceptance variables.
+        f[i] is true if state i of the separating SFA is accepting.
+        """
+        self.f = [Bool(f"f_{i}") for i in range(self.state_num)]
+
+    def determinism_constraints(self):
+        """
+        These constraints guarantee that the separating SFA is deterministic,
+        i.e. that intervals on different edges cannot intersect.
+        """
+        for i, j1, k1, k2 in product(
+            range(self.state_num),
+            range(self.state_num),
+            range(self.interval_num),
+            range(self.interval_num),
+        ):
+            # Note that the clauses are symmetric w.r.t. j1 and j2.
             for j2 in range(j1 + 1, self.state_num):
-                for k2 in range(self.interval_num):
-                    # One of the following must hold:
-                    # 1. The first interval is empty
-                    # 2. The second interval is empty
-                    # 3. The first interval is completely to the right of the
-                    #    second
-                    # 4. The first interval is completely to the left of the
-                    #    second
-                    self.solver.add(
-                        Or(
-                            self.l[i][j1][k1] > self.u[i][j1][k1],
-                            self.l[i][j2][k2] > self.u[i][j2][k2],
-                            self.l[i][j1][k1] > self.u[i][j2][k2],
-                            self.u[i][j1][k1] < self.l[i][j2][k2],
-                        )
+                # One of the following must hold:
+                # 1. The first interval is empty.
+                # 2. The second interval is empty.
+                # 3. The first interval is to the right of the second.
+                # 4. The first interval is to the left of the second.
+                self.solver.add(
+                    Or(
+                        self.l[i][j1][k1] > self.u[i][j1][k1],
+                        self.l[i][j2][k2] > self.u[i][j2][k2],
+                        self.l[i][j1][k1] > self.u[i][j2][k2],
+                        self.u[i][j1][k1] < self.l[i][j2][k2],
                     )
+                )
 
-    def encode_compatibility_constraints(self):
-        x = [Int(f"x_{node}") for node in range(self.sapta.size())]
-        
-        for node, i in product(range(self.sapta.size()), range(self.state_num)):
+    def state_compatibility_constraints(self):
+        """
+        These constraints guarantee that the separating SFA is compatible with
+        the sample, i.e. that it accepts all positive words and rejects all
+        negative words in the sample.
+        """
+        for node in range(self.apta.size()):
+            for i in range(self.state_num):
+                if self.apta.node_list[node].label is True:
+                    self.solver.add(Implies(self.x[node] == i, self.f[i]))
+                elif self.apta.node_list[node].label is False:
+                    self.solver.add(Implies(self.x[node] == i, Not(self.f[i])))
 
-            # For each node and state, we have a variable x[node][state] which is
-            # true if the node is compatible with the state.
-            self.x.append(
-                [Bool(f"x_{node}_{i}") for i in range(self.state_num)]
-            )
+    def edge_compatibility_constraints(self):
+        """
+        These constraints guarantee that the APTA is compatible with the edges
+        of the separating SFA. i.e. that if an APTA node reaches state i and
+        has a child by letter symbol that reaches state j, then symbol must be
+        in the union of the intervals labelling the edge from i to j.
+        """
+        for node, i, j in product(
+            range(self.apta.size()),
+            range(self.state_num),
+            range(self.state_num),
+        ):
+            for symbol, child in self.apta.node_list[node].children.items():
+                self.solver.add(
+                    Implies(
+                        And(self.x[node] == i, self.x[child] == j),
+                        Or(
+                            [
+                                And(
+                                    self.l[i][j][k] <= symbol,
+                                    symbol <= self.u[i][j][k],
+                                )
+                                for k in range(self.interval_num)
+                            ]
+                        ),
+                    )
+                )
 
-        return 0
+    if __name__ == "__main__":
+        print("Hello, world!")
