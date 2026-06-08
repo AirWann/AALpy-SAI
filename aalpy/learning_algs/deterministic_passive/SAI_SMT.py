@@ -265,6 +265,22 @@ class SMTIntervalEncoding:
             return model
         return None
 
+    def display_model(self, model):
+        print(
+            f"{self.state_num} states, {self.interval_num} intervals per edge"
+        )
+        print(
+            f"Accepting states: {[i for i in range(self.state_num) if model[self.f[i]]]}"
+        )
+        print("Edges:")
+        for i, j in product(range(self.state_num), range(self.state_num)):
+            edge_str = f"{i} -> {j} :"
+            for k in range(self.interval_num):
+                edge_str += (
+                    f" [{model[self.l[i][j][k]]}, {model[self.u[i][j][k]]}]"
+                )
+            print(edge_str)
+
 
 if __name__ == "__main__":
     sample = {
@@ -279,4 +295,4 @@ if __name__ == "__main__":
     }
     encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
     encoding.apta.display("test_apta.dot")
-    print(encoding.encode_and_solve())
+    encoding.display_model(encoding.encode_and_solve())
