@@ -78,7 +78,7 @@ class APTA:
                 style = "dotted"
 
             lines.append(
-                f'  q{index} [shape={shape},style={style},label="{node.prefix}"];'
+                f'  q{index} [shape={shape},style={style},label="{index}"];'
             )
         # Draw the edges.
         for index, node in enumerate(self.node_list):
@@ -295,4 +295,6 @@ if __name__ == "__main__":
     }
     encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
     encoding.apta.display("test_apta.dot")
-    encoding.display_model(encoding.encode_and_solve())
+    model = encoding.encode_and_solve()
+    print(model)
+    encoding.display_model(model)
