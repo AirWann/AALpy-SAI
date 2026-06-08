@@ -56,6 +56,46 @@ class APTA:
         self.node_list[current_node].label = acceptance
         return current_node
 
+    def display(self, output_file: Optional[str] = None) -> str:
+        """Return the APTA as DOT and optionally save it to a Graphviz file."""
+        lines = [
+            "digraph APTA {",
+            "  rankdir=LR;",
+            '  __start0 [shape=none,label=""];',
+            "  __start0 -> q0;",
+        ]
+
+        # Draw the states.
+        for index, node in enumerate(self.node_list):
+            if node.label is True:
+                shape = "doublecircle"
+                style = "solid"
+            elif node.label is False:
+                shape = "circle"
+                style = "solid"
+            else:
+                shape = "circle"
+                style = "dotted"
+
+            lines.append(
+                f'  q{index} [shape={shape},style={style},label="{node.prefix}"];'
+            )
+        # Draw the edges.
+        for index, node in enumerate(self.node_list):
+            for symbol, child in sorted(
+                node.children.items(), key=lambda t: t[0]
+            ):
+                lines.append(f'  q{index} -> q{child} [label="{symbol}"];')
+
+        lines.append("}")
+        dot_output = "\n".join(lines)
+
+        if output_file is not None:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(dot_output)
+
+        return dot_output
+
 
 class SMTIntervalEncoding:
     """
@@ -238,4 +278,5 @@ if __name__ == "__main__":
         ((11, 30), True),
     }
     encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
+    encoding.apta.display("test_apta.dot")
     print(encoding.encode_and_solve())
