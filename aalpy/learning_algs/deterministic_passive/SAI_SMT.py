@@ -59,17 +59,22 @@ class APTA:
 
 class SMTIntervalEncoding:
     """
+    Initializes the SMT encoding for learning a separating SFA from a sample of
+    labeled words. The number of states and intervals per edge of said SFA is
+    bounded.
+
     Args:
+        - data: the labeled words to learn from
         - state_num: number of states in the separating SFA
         - interval_num: maximum number of intervals per transition in the
           separating SFA
-        - max_value: maximum value for the interval bounds
     """
 
-    def __init__(self, data, state_num, interval_num, max_value):
+    def __init__(self, data, state_num, interval_num):
         self.state_num = state_num
         self.interval_num = interval_num
-        self.max_value = max_value
+        # The maximum integer in the sample bounds the possible intervals.
+        self.max_value = max([symbol for word, _ in data for symbol in word])
         # Create the APTA from the data.
         self.apta = APTA(data)
         # Initialize the SMT solver.
@@ -204,5 +209,33 @@ class SMTIntervalEncoding:
                     )
                 )
 
-    if __name__ == "__main__":
-        print("Hello, world!")
+    def encode_and_solve(self):
+        """
+        Adds all the constraints to the solver and checks for satisfiability.
+        """
+        self.interval_variables()
+        self.apta_variables()
+        self.acceptance_variables()
+        self.determinism_constraints()
+        self.state_compatibility_constraints()
+        self.edge_compatibility_constraints()
+
+        if self.solver.check():
+            model = self.solver.model()
+            return model
+        return None
+
+
+if __name__ == "__main__":
+    sample = {
+        (tuple([]), False),
+        ((5,), False),
+        ((10,), False),
+        ((24,), True),
+        ((15,), True),
+        ((15, 2), True),
+        ((18, 7), True),
+        ((11, 30), True),
+    }
+    encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
+    print(encoding.encode_and_solve())
