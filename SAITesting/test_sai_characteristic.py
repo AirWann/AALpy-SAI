@@ -399,14 +399,39 @@ if __name__ == "__main__":
         learned_sfa = SAI(sample, algebra=LetterIntervalAlgebra({"a", "b", "c", "d", "e"}), print_info=True).run_SAI()
         visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
     else:
-        nb_iters = 100
+        nb_iters = 10
         nb_states = 10
         alph_size = 5
         alphabet = "abcdefghijklmnopqrstuvwxyz"
+        letters_no_value = {"a","e","i","o","u"}
         for i in range(nb_iters):
             alg = LetterIntervalAlgebra({alphabet[j] for j in range(alph_size)})
             sfa = generate_sfa(nb_states, alg)
+            #modify the sfa by removing intervals associated with letters in letters_no_value and replacing them with a single transition to the first target of the removed transitions
+            for letter in letters_no_value:
+                if letter not in alg.alphabet:
+                    continue
+                for state in sfa.states:
+                    target = None
+                    # Find the first target for the letter to be removed
+                    for pred, tgt in state.transitions:
+                        if pred.letter == letter:
+                            target = tgt
+                            break
+                    if target is None:
+                        print(f"No transition found for letter '{letter}' in transitions {state.transitions}. Skipping modification for this letter.")
+                        target = state
+                    state.transitions = [(pred, target) for pred, target in state.transitions if pred.letter != letter]
+                    state.transitions.append((alg.letter_interval(letter, IntervalPredicate(None, None)), target))
+            #visualize_automaton(sfa, path="./SAITesting/test_letter_no_value_automaton")
+        
             sample = sfa.characteristic_sample()
+            for word,label in sample:
+                for letter,value in word:
+                    if letter in letters_no_value:
+                        print(letter,value) #should be 0
+                        
+                        
             try:
                 learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
                 if not learned_sfa.is_input_complete():

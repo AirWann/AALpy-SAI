@@ -192,7 +192,7 @@ class IntervalPredicate(Predicate[int]):
     
 
     def __repr__(self) -> str:
-        return f"[{self.lower if self.lower is not None else '-inf'}, {self.upper if self.upper is not None else 'inf'}["
+        return f"[{self.lower if self.lower is not None else '-∞'}, {self.upper if self.upper is not None else '∞'}["
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, IntervalPredicate):
