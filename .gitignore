@@ -139,3 +139,7 @@ original_sfa_*
 sai_benchmark*
 SAITesting/*.pdf
 *.png
+LearnedModelRPNI.pdf
+*.xes
+*.xes.gz
+SAITesting/labeled_sequences_BPI2017.csv

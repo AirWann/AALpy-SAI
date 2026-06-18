@@ -161,7 +161,24 @@ def to_automaton(red: List[SAINode]) -> Sfa:
 
     return Sfa(node_to_state[root_node], list(node_to_state.values()), algebra=algebra)
 
+
+def count_nodes(root: SAINode):
+    """
+    Count the number of nodes reachable from the root node.
+    """
+    visited = set()
+    queue = deque([root])
+    while queue:
+        node = queue.popleft()
+        if node in visited:
+            continue
+        visited.add(node)
+        for _, child in node.children:
+            if child not in visited:
+                queue.append(child)
+    return len(visited)
 def see_all_nodes(root: SAINode):
+    return 0
     see_all_nodes.counter += 1
     all_nodes = [root]
     queue = deque([root])
@@ -182,6 +199,9 @@ class SAI:
         self.algebra = algebra
         self.root = create_SPTA(data, algebra)
         self.print_info = print_info
+        if print_info:
+            nb_states = count_nodes(self.root)
+            print(f"Initial SPTA created with root: {self.root}, and {nb_states} states")
         pos = {s for s, l in data if l}
         neg = {s for s, l in data if not l}
         if pos & neg:
@@ -197,8 +217,8 @@ class SAI:
             #print ALL nodes to see
             see_all_nodes(self.root)
         while blue:
-            if self.print_info:
-                print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
+            # if self.print_info:
+            #     print(f"\n\n Current red set: {red},\n Current blue set: {blue}")
             #blue is sorted, so the min is first
             qb = blue[0]
 
@@ -272,9 +292,10 @@ class SAI:
             blue = sorted({s for r in red for _, s in r.children if s not in red})
         
         if not self.is_consistent(red):
+            if self.print_info:
+                print(f"Final red set: {red}")
             raise ValueError("Inconsistent red set at the end of SAI - cannot build automaton")
-        if self.print_info:
-            print(f"Final red set: {red}")
+            
         automaton = to_automaton(red)
 
         #Debugging line
