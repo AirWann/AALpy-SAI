@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from aalpy.automata.Sfa import Sfa
-from aalpy.base.BooleanAlgebra import IntervalPredicate
+from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
+from aalpy.utils.FileHandler import visualize_automaton
 
 from cvc5.pythonic import Int, Bool, Solver, Or, Implies, Not, And
 
@@ -288,6 +289,27 @@ class SMTIntervalEncoding:
                 )
             print(edge_str)
 
+    def get_sfa_from_model(self, model) -> Sfa:
+        """
+        Returns the (incomplete) separating SFA corresponding to the given model.
+        """
+        state_dict = {}
+        for i in range(self.state_num):
+            transitions = []
+            # Builds all the outgoing transitions from state i.
+            for j in range(self.state_num):
+                for k in range(self.interval_num):
+                    low = model[self.l[i][j][k]].as_long()
+                    up = model[self.u[i][j][k]].as_long()
+                    # Only non-empty intervals are added to the SFA.
+                    if low <= up:
+                        transitions.append((IntervalPredicate(low, up + 1), j))
+
+                    pass
+            state_dict[i] = (model[self.f[i]], transitions)
+
+        return Sfa.from_state_setup(state_dict, algebra=IntervalAlgebra())
+
 
 if __name__ == "__main__":
     sample = {
@@ -303,5 +325,8 @@ if __name__ == "__main__":
     encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
     encoding.apta.display("test_apta.dot")
     model = encoding.encode_and_solve()
-    print(model)
     encoding.display_model(model)
+    sfa = encoding.get_sfa_from_model(model)
+    # Sanity check.
+    for w, a in sample:
+        assert sfa.accepts(w) == a
