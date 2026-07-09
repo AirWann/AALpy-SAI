@@ -1,7 +1,9 @@
+from matplotlib.pylab import sample
 import pm4py
 import time 
 import pandas as pd
 import numpy as np
+from wakepy import keep
 class FileHandler:
     """
     A class for handling data. 
@@ -72,26 +74,34 @@ class FileHandler:
         end_time = time.time()
         print(f"Time taken to convert to sequences: {end_time - start_time} seconds")
         return sequences,unique_activities, stats
-    def label_sequences(self, sequences, pos_activities, neg_activities):
+    def label_sequences(self, sequences:list[list[tuple[str, int]]], pos_activities, neg_activities):
         """Label sequences as positive or negative based on the presence of activities in pos_activities and neg_activities"""
         labeled_sequences = []
         labeled, pos, neg = 0, 0, 0
         for sequence in sequences:
             label = False
             for activity, value in sequence:
+                #if activity in pos_activities, label True, and REMOVE activity from the sequence
+
                 if activity in pos_activities:
                     label = True
                     labeled += 1
-                    pos +=1
+                    pos +=1 
                     break
                 elif activity in neg_activities:
                     label = False
                     labeled += 1
-                    neg +=1
+                    neg +=1 
                     break
-            labeled_sequences.append((sequence, label))
+            stripped_sequence = [(activity, value) for activity, value in sequence if activity not in pos_activities and activity not in neg_activities]
+            labeled_sequences.append((stripped_sequence, label))
         print(f"{len(sequences)-labeled} sequences were not labeled manually (defaulted to false) because they did not contain any of the specified activities.")
         print(f"Positive: {pos}, Negative: {neg}")
+        #debugging : check wether any activity in pos_activities or neg_activities is still in any sequence
+        for sequence, label in labeled_sequences:
+            for activity, value in sequence:
+                if activity in pos_activities or activity in neg_activities:
+                    print(f"Error: activity {activity} is still in sequence {sequence} after labeling.")
         return labeled_sequences
     def pipeline(self, file_path, output_path, activities_to_value:dict[str, str]={}, pos_activities:set[str]=set(), neg_activities:set[str]=set()):
         """Read a file, convert it to sequences, label the sequences, and write the labeled sequences to a csv file
@@ -109,7 +119,7 @@ class FileHandler:
 
 
 
-    def csv_to_SAI(self, csv_path):
+    def csv_to_SAI(self, csv_path, learning_sample_size: float = 0.8):
         """Convert a csv file of labeled sequences with first line being the set of unique activities to a set of tuple of (sequence, label) for SAI"""
         df = pd.read_csv(csv_path)
         sequences = set()
@@ -123,7 +133,11 @@ class FileHandler:
             sequence = tuple(eval(sequence_str))  # Use eval to convert string representation of list to actual list
             label: bool = row['label']
             sequences.add((sequence, label))
-        return sequences, unique_activities
+        # Split the sequences into learning and testing samples
+        samples_list = list(sequences)
+        learning_sample = samples_list[:int(learning_sample_size * len(sequences))]
+        test_sample = samples_list[int(learning_sample_size * len(sequences)):]
+        return set(learning_sample), set(test_sample), unique_activities
 
 
 def strip_values_from_sequences(sequences):
@@ -135,12 +149,12 @@ def strip_values_from_sequences(sequences):
     return stripped_sequences
 if __name__ == "__main__":
     fh = FileHandler()
-    #fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending'}, neg_activities={'A_Denied','A_Cancelled'})
-    sample, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv')
-    print(f"got {len(sample)} sequences and {len(activities)} unique activities")
-    print(f"longest sequence {max(sample, key=lambda x: len(x[0]))}")
+    fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
+    learning_sample, test_sample, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv')
+    print(f"got {len(learning_sample)} learning samples and {len(test_sample)} test samples")
+    print(f"longest sequence {max(learning_sample, key=lambda x: len(x[0]))}")
     #Try RPNI
-    # stripped_sample = strip_values_from_sequences(sample)
+    # stripped_sample = strip_values_from_sequences(learning_sample)
     # from aalpy.learning_algs import run_RPNI
     # model = run_RPNI(stripped_sample, automaton_type='dfa', print_info=True)
     # model.visualize()
@@ -150,9 +164,22 @@ if __name__ == "__main__":
     
     from aalpy.utils import save_automaton_to_file, visualize_automaton
     from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
-
+    #split sample into learning and testing samples
     alg = LetterIntervalAlgebra(alphabet = activities)
-    sai = SAI(sample, alg,print_info=True)
+    sai = SAI(learning_sample, alg,print_info=False)
     input("Press Enter to continue...")
-    sfa = sai.run_SAI()
+    from alive_progress import alive_bar
+    with keep.running():
+        with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
+            sfa = sai.run_SAI()
     visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
+    import pickle
+    with open('./SAITesting/sfa_BPI2017.pkl', 'wb') as f:
+        pickle.dump(sfa, f)
+    error, ok = 0, 0
+    for word,label in test_sample:
+        if sfa.accepts(word) != label:
+            error += 1
+        else:
+            ok += 1
+    print(f"Test sample: {len(test_sample)} samples, {error} errors, {ok} correct, accuracy: {ok/len(test_sample)}")
