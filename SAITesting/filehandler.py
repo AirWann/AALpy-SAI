@@ -148,34 +148,42 @@ def strip_values_from_sequences(sequences):
         stripped_sequences.append((stripped_sequence, label))
     return stripped_sequences
 if __name__ == "__main__":
-    fh = FileHandler()
-    fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
-    learning_sample, test_sample, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv')
-    print(f"got {len(learning_sample)} learning samples and {len(test_sample)} test samples")
-    print(f"longest sequence {max(learning_sample, key=lambda x: len(x[0]))}")
-    #Try RPNI
-    # stripped_sample = strip_values_from_sequences(learning_sample)
-    # from aalpy.learning_algs import run_RPNI
-    # model = run_RPNI(stripped_sample, automaton_type='dfa', print_info=True)
-    # model.visualize()
-    # quit()
-
     from aalpy.learning_algs.deterministic_passive.SAI import SAI
     
     from aalpy.utils import save_automaton_to_file, visualize_automaton
     from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
-    #split sample into learning and testing samples
-    alg = LetterIntervalAlgebra(alphabet = activities)
-    sai = SAI(learning_sample, alg,print_info=False)
-    input("Press Enter to continue...")
-    from alive_progress import alive_bar
-    with keep.running():
-        with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
-            sfa = sai.run_SAI()
-    visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
     import pickle
-    with open('./SAITesting/sfa_BPI2017.pkl', 'wb') as f:
-        pickle.dump(sfa, f)
+    with open('./SAITesting/sfa_BPI2017.pkl', 'rb') as f:
+        sfa = pickle.load(f)
+    print(f"loaded sfa with {len(sfa.states)} states")
+    # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
+    # quit()
+    fh = FileHandler()
+    # fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
+    learning_sample, test_sample, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv')
+    # print(f"got {len(learning_sample)} learning samples and {len(test_sample)} test samples")
+    # print(f"longest sequence {max(learning_sample, key=lambda x: len(x[0]))}")
+    # #Try RPNI
+    # # stripped_sample = strip_values_from_sequences(learning_sample)
+    # # from aalpy.learning_algs import run_RPNI
+    # # model = run_RPNI(stripped_sample, automaton_type='dfa', print_info=True)
+    # # model.visualize()
+    # # quit()
+
+
+    # #split sample into learning and testing samples
+    # alg = LetterIntervalAlgebra(alphabet = activities)
+    # sai = SAI(learning_sample, alg,print_info=False)
+    # input("Press Enter to continue...")
+    # from alive_progress import alive_bar
+    # with keep.running():
+    #     with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
+    #         sfa = sai.run_SAI()
+    #         import pickle
+    #         with open('./SAITesting/sfa_BPI2017.pkl', 'wb') as f:
+    #             pickle.dump(sfa, f)
+    # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
+    sfa.make_input_complete()
     error, ok = 0, 0
     for word,label in test_sample:
         if sfa.accepts(word) != label:
