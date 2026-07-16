@@ -299,15 +299,16 @@ class SMTIntervalEncoding:
             # Builds all the outgoing transitions from state i.
             for j in range(self.state_num):
                 for k in range(self.interval_num):
-                    low = model[self.l[i][j][k]].as_long()
-                    up = model[self.u[i][j][k]].as_long()
+                    low = int(model[self.l[i][j][k]].as_long())
+                    up = int(model[self.u[i][j][k]].as_long())
                     # Only non-empty intervals are added to the SFA.
                     if low <= up:
-                        transitions.append((IntervalPredicate(low, up + 1), j))
+                        transitions.append((IntervalPredicate(low, up + 1), f"s{j}"))
 
                     pass
-            state_dict[i] = (model[self.f[i]], transitions)
-
+            
+            state_dict[f"s{i}"] = (model[self.f[i]], transitions)
+ 
         return Sfa.from_state_setup(state_dict, algebra=IntervalAlgebra())
 
 

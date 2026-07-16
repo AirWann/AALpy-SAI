@@ -139,3 +139,9 @@ original_sfa_*
 sai_benchmark*
 SAITesting/*.pdf
 *.png
+*.xes
+*.xes.gz
+*.csv
+SAITesting/test_automaton_letter_interval.pkl
+*.pdf
+test_apta.dot

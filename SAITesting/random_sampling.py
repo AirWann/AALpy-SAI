@@ -2,6 +2,7 @@ from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
+from aalpy.learning_algs.deterministic_passive.SAI_SMT import SMTIntervalEncoding
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from aalpy.automata import Dfa, DfaState
 from aalpy.learning_algs import run_RPNI
@@ -41,15 +42,13 @@ def test_random_sampling(
             testautomaton = generate_sfa(nb_states)
         else:
             testautomaton = fixed_automaton
+            nb_states = len(testautomaton.states)
 
         start_time = time.time()
-        if mode == -1:
-            sample = generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=0).union(
-                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=1),
-                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=2),
-            )
-        else:
-            sample = generate_random_sample(testautomaton, num_samples=nb_samples, stop_prob=stop_prob, mode=mode)
+        sample = generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=0).union(
+            generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=1),
+            generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=2),
+        )
         sampling_time = time.time() - start_time
         learning_sample = set(list(sample)[:int(len(sample)*learning_part)])
         #print(learning_sample)
@@ -59,10 +58,20 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            learned_dfa = run_RPNI(list(learning_sample), 'dfa', 'classic',print_info=False)
-            learned_sfa = dfa_to_sfa(learned_dfa,IntervalAlgebra())
+            print(f"Learning SFA using SMT encoding with {len(learning_sample)} samples...")
+            print(learning_sample)
+            encoding = SMTIntervalEncoding(data=learning_sample, state_num=nb_states+1,interval_num=nb_states+1)
+            model = encoding.encode_and_solve()
+            if model is None:
+                print("UNSAT")
+                learned_sfa = None
+            else:
+                learned_sfa = encoding.get_sfa_from_model(model)
+                print(f"Learned SFA has {len(learned_sfa.states)} states.")
         else:
             learned_sfa = SAI(learning_sample).run_SAI()
+        if not learned_sfa.is_input_complete():
+            learned_sfa.make_input_complete()
         learning_time = time.time() - start_time - sampling_time
         result_sizes[i] = len(learned_sfa.states)
         if print_info:
@@ -73,7 +82,7 @@ def test_random_sampling(
             visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_random_sample")
         correct = 0
         for word, label in testing_sample:
-            if learned_sfa.accepts(word) == label:
+            if learned_sfa.accepts(word) == bool(label):
                 correct += 1
         if len(testing_sample) == 0:
             print("Warning: testing sample is empty, cannot compute accuracy.")
@@ -346,7 +355,7 @@ if __name__ == "__main__":
             nb_runs=15,
             nb_samples=2000,
             stop_prob=0.15,
-            modes=[-1],
+            modes=[-1,0],
             uncertainty="ci95",
-            output_prefix=f"sai+rpni",
+            output_prefix=f"sai+smt",
         )

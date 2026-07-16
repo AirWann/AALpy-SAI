@@ -64,9 +64,9 @@ class Sfa(DeterministicAutomaton[SfaState]):
 
     def accepts(self, word):
         if len(word) == 0:
-            return self.initial_state.is_accepting
+            return bool(self.initial_state.is_accepting)
         else:
-            return self.compute_output_seq(self.initial_state, word)[-1]
+            return bool(self.compute_output_seq(self.initial_state, word)[-1])
 
     def bisimilar(self, other: 'Sfa', return_cex: bool = False) -> bool | None | Tuple:
         """

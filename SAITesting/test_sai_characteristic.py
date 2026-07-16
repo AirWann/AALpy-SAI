@@ -6,6 +6,8 @@ from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
+
+from aalpy.learning_algs.deterministic_passive.SAI_SMT import SMTIntervalEncoding
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from wakepy import keep
 from pickle import dump, load
@@ -399,16 +401,26 @@ if __name__ == "__main__":
         learned_sfa = SAI(sample, algebra=LetterIntervalAlgebra({"a", "b", "c", "d", "e"}), print_info=True).run_SAI()
         visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
     else:
-        nb_iters = 100
-        nb_states = 10
-        alph_size = 5
-        alphabet = "abcdefghijklmnopqrstuvwxyz"
+        nb_iters = 1
+        nb_states = 5
         for i in range(nb_iters):
-            alg = LetterIntervalAlgebra({alphabet[j] for j in range(alph_size)})
+            alg = IntervalAlgebra()
             sfa = generate_sfa(nb_states, alg)
+            print(f"Generated SFA with {len(sfa.states)} states.")
             sample = sfa.characteristic_sample()
             try:
-                learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+                #learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
+                encoding = SMTIntervalEncoding(data=sample, state_num=nb_states+1,interval_num=nb_states+1)
+                print(f"Encoding SMT problem with {len(sample)} samples...")
+                print(sample)
+                model = encoding.encode_and_solve()
+                if model is None:
+                    print("UNSAT")
+                    learned_sfa = None
+                    exit(1)
+                else:
+                    learned_sfa = encoding.get_sfa_from_model(model)
+                    print(f"Learned SFA has {len(learned_sfa.states)} states.")
                 if not learned_sfa.is_input_complete():
                     learned_sfa.make_input_complete()
             except Exception as e:
