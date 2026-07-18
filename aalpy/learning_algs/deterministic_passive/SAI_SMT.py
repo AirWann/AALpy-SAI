@@ -7,7 +7,7 @@ from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
 from aalpy.utils.FileHandler import visualize_automaton
 
-from cvc5.pythonic import Int, Bool, Solver, Or, Implies, Not, And
+from cvc5.pythonic import Int, Bool, Solver, Or, Implies, Not, And, sat
 
 
 IntWord = Tuple[int, ...]
@@ -268,7 +268,7 @@ class SMTIntervalEncoding:
         self.state_compatibility_constraints()
         self.edge_compatibility_constraints()
 
-        if self.solver.check():
+        if self.solver.check() == sat:
             model = self.solver.model()
             return model
         return None
