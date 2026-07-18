@@ -119,8 +119,10 @@ class SMTIntervalEncoding:
 
         self.state_num = state_num
         self.interval_num = interval_num
-        # The maximum integer in the sample bounds the possible intervals.
+        # The maximum and minimum integers occurring in the sample bounds the
+        # possible intervals.
         self.max_value = max([symbol for word, _ in data for symbol in word])
+        self.min_value = min([symbol for word, _ in data for symbol in word])
         # Create the APTA from the data.
         self.apta = APTA(data)
         # Initialize the SMT solver.
@@ -161,11 +163,11 @@ class SMTIntervalEncoding:
             range(self.interval_num),
         ):
             self.solver.add(
-                self.l[i][j][k] >= 0,
+                self.l[i][j][k] >= self.min_value,
                 self.l[i][j][k] <= self.max_value,
             )
             self.solver.add(
-                self.u[i][j][k] >= 0,
+                self.u[i][j][k] >= self.min_value,
                 self.u[i][j][k] <= self.max_value,
             )
 
@@ -303,12 +305,14 @@ class SMTIntervalEncoding:
                     up = int(model[self.u[i][j][k]].as_long())
                     # Only non-empty intervals are added to the SFA.
                     if low <= up:
-                        transitions.append((IntervalPredicate(low, up + 1), f"s{j}"))
+                        transitions.append(
+                            (IntervalPredicate(low, up + 1), f"s{j}")
+                        )
 
                     pass
-            
+
             state_dict[f"s{i}"] = (model[self.f[i]], transitions)
- 
+
         return Sfa.from_state_setup(state_dict, algebra=IntervalAlgebra())
 
 
