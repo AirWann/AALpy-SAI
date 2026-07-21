@@ -58,16 +58,21 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            print(f"Learning SFA using SMT encoding with {len(learning_sample)} samples...")
-            print(learning_sample)
-            encoding = SMTIntervalEncoding(data=learning_sample, state_num=nb_states+1,interval_num=nb_states+1)
+            encoding = SMTIntervalEncoding(data=learning_sample, state_num=6,interval_num=6)
             model = encoding.encode_and_solve()
             if model is None:
                 print("UNSAT")
                 learned_sfa = None
+                learning_time = time.time() - start_time - sampling_time
+                accuracies[i] = 0
+                learn_times[i] = learning_time
+                learn_samples[i] = len(learning_sample)
+                continue
             else:
                 learned_sfa = encoding.get_sfa_from_model(model)
-                print(f"Learned SFA has {len(learned_sfa.states)} states.")
+            #print the very last sfa
+            if i == nb_runs - 1:
+                visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_random_sample_SMT")
         else:
             learned_sfa = SAI(learning_sample).run_SAI()
         if not learned_sfa.is_input_complete():
@@ -340,7 +345,7 @@ if __name__ == "__main__":
         smallparts = np.linspace(0.01, 0.1, 5, endpoint=False)
         parts = np.linspace(0.1, 1, 5)
         allparts = np.concatenate((smallparts, parts))
-        testautomaton = generate_sfa(nb_states=8)
+        testautomaton = generate_sfa(nb_states=6, nb_trans=6)
         sample0 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=0)
         sample1 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=1)
         sample2 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=2)
@@ -351,11 +356,11 @@ if __name__ == "__main__":
             fixed_automaton=testautomaton,
             fixed_test_sample=fixed_test_sample,
             learning_parts=allparts,
-            nb_states=8,
-            nb_runs=15,
+            nb_states=6,
+            nb_runs=10,
             nb_samples=2000,
             stop_prob=0.15,
-            modes=[-1,0],
+            modes=[-1,2],
             uncertainty="ci95",
             output_prefix=f"sai+smt",
         )

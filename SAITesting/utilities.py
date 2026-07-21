@@ -21,7 +21,7 @@ def gen_symnums():
         return gen_symnums()
     return SymNum(letter, number)
 
-def generate_sfa(nb_states, algebra: BooleanAlgebra = IntervalAlgebra(), element_generator = None) -> Sfa:
+def generate_sfa(nb_states,nb_trans= None, algebra: BooleanAlgebra = IntervalAlgebra(), element_generator = None) -> Sfa:
     """
     Generate a random SFA with the given number of states. 
 
@@ -48,7 +48,7 @@ def generate_sfa(nb_states, algebra: BooleanAlgebra = IntervalAlgebra(), element
                     target = np.random.choice(states)
                     s.transitions.append((pred, target))       
         else:
-            nb_trans = np.random.randint(nb_states//4, nb_states)
+            nb_trans = np.random.randint(nb_states//4, nb_states) if nb_trans is None else nb_trans
             if isinstance(algebra, IntervalAlgebra):
                 bounds = sorted(np.random.choice(range(0, nb_trans*200), max(0, nb_trans-1), replace=False))
             else:

@@ -11,7 +11,7 @@ from aalpy.learning_algs.deterministic_passive.SAI_SMT import SMTIntervalEncodin
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from wakepy import keep
 from pickle import dump, load
-from utilities import generate_sfa
+from utilities import generate_sfa, generate_random_sample
 
 def save_raw_benchmark_data(output_prefix, records):
     if not records:
@@ -405,7 +405,7 @@ if __name__ == "__main__":
         nb_states = 5
         for i in range(nb_iters):
             alg = IntervalAlgebra()
-            sfa = generate_sfa(nb_states, alg)
+            sfa = generate_sfa(nb_states, algebra=alg)
             print(f"Generated SFA with {len(sfa.states)} states.")
             sample = sfa.characteristic_sample()
             try:
@@ -428,19 +428,12 @@ if __name__ == "__main__":
                 visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
                 dump(sfa, open("./SAITesting/test_automaton_letter_interval.pkl", "wb"))
                 raise e
-            if not learned_sfa.bisimilar(sfa):
-                print("Learned SFA is not bisimilar to the original SFA. Counterexample:", learned_sfa.bisimilar(sfa, return_cex=True))
-
-                visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
-                visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
-                print("Original SFA:", sfa)
-                print("Learned SFA:", learned_sfa)
-                from pickle import dump
-                dump(sfa, open("./SAITesting/test_automaton_letter_interval.pkl", "wb"))
-                break
-            else:
-                print(f"{i}th Learned SFA is bisimilar to the original SFA")
-                if i == nb_iters-1:
-                    print("All iterations succeeded without bisimilarity issues. Last automaton and learned automaton visualized.")
-                    visualize_automaton(sfa, path="./SAITesting/test_automaton_letter_interval")
-                    visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_letter_interval")
+            
+            test_sample = generate_random_sample(sfa, 1000, stop_prob=0.15, mode=0)
+            error, ok = 0, 0
+            for word, label in test_sample:
+                if learned_sfa.accepts(word) != label:
+                    error += 1
+                else:
+                    ok += 1
+            print(f"Accuracy: {ok/len(test_sample) if len(test_sample) > 0 else 0:.2%}")

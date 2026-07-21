@@ -273,6 +273,7 @@ class SMTIntervalEncoding:
         if self.solver.check() == sat:
             model = self.solver.model()
             return model
+        print("UNSAT")
         return None
 
     def display_model(self, model):
@@ -311,22 +312,13 @@ class SMTIntervalEncoding:
 
                     pass
 
-            state_dict[f"s{i}"] = (model[self.f[i]], transitions)
+            state_dict[f"s{i}"] = (bool(model[self.f[i]]), transitions)
 
         return Sfa.from_state_setup(state_dict, algebra=IntervalAlgebra())
 
 
 if __name__ == "__main__":
-    sample = {
-        (tuple([]), False),
-        ((5,), False),
-        ((10,), False),
-        ((24,), True),
-        ((15,), True),
-        ((15, 2), True),
-        ((18, 7), True),
-        ((11, 30), True),
-    }
+    sample = {((), False), ((0,), False), ((0,0,), False)}
     encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
     encoding.apta.display("test_apta.dot")
     model = encoding.encode_and_solve()
