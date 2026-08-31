@@ -121,8 +121,12 @@ class SMTIntervalEncoding:
         self.interval_num = interval_num
         # The maximum and minimum integers occurring in the sample bounds the
         # possible intervals.
-        self.max_value = max([symbol for word, _ in data for symbol in word])
-        self.min_value = min([symbol for word, _ in data for symbol in word])
+        self.max_value = (
+            max([symbol for word, _ in data for symbol in word]) + 1
+        )
+        self.min_value = (
+            min([symbol for word, _ in data for symbol in word]) - 1
+        )
         # Create the APTA from the data.
         self.apta = APTA(data)
         # Initialize the SMT solver.
@@ -318,12 +322,36 @@ class SMTIntervalEncoding:
 
 
 if __name__ == "__main__":
-    sample = {((), False), ((0,), False), ((0,0,), False)}
-    encoding = SMTIntervalEncoding(sample, state_num=2, interval_num=2)
+    # sample = {
+    #     ((), False),
+    #     ((0,), False),
+    #     (
+    #         (
+    #             0,
+    #             0,
+    #         ),
+    #         False,
+    #     ),
+    # }
+    # sample = {((), False), ((0,), False)}
+    # sample = {((), False), ((0,), True)}
+    sample = {
+        ((), False),
+        ((0,), True),
+        (
+            (
+                0,
+                0,
+            ),
+            False,
+        ),
+    }
+    encoding = SMTIntervalEncoding(sample, state_num=3, interval_num=2)
     encoding.apta.display("test_apta.dot")
     model = encoding.encode_and_solve()
-    encoding.display_model(model)
-    sfa = encoding.get_sfa_from_model(model)
-    # Sanity check.
-    for w, a in sample:
-        assert sfa.accepts(w) == a
+    if model is not None:
+        encoding.display_model(model)
+        sfa = encoding.get_sfa_from_model(model)
+        # Sanity check.
+        for w, a in sample:
+            assert sfa.accepts(w) == a
