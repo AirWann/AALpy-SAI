@@ -2,6 +2,7 @@ from itertools import product
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+import numpy as np
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
@@ -31,6 +32,14 @@ class APTA:
         return len(self.node_list)
 
     def insert(self, word: Sequence[int], acceptance: bool) -> int:
+        # Handling numpy Boolean values.
+        if acceptance == np.True_:
+            acceptance_bool = True
+        elif acceptance == np.False_:
+            acceptance_bool = False
+        else:
+            acceptance_bool = bool(acceptance)
+
         current_node = 0
         for symbol in word:
             if symbol not in self.node_list[current_node].children:
@@ -49,12 +58,12 @@ class APTA:
         # the new label.
         if (
             self.node_list[current_node].label is not None
-            and self.node_list[current_node].label != acceptance
+            and self.node_list[current_node].label != acceptance_bool
         ):
             raise ValueError(
                 f"Inconsistent sample: word {word} is labeled both True and False."
             )
-        self.node_list[current_node].label = acceptance
+        self.node_list[current_node].label = acceptance_bool
         return current_node
 
     def display(self, output_file: Optional[str] = None) -> str:
@@ -352,6 +361,7 @@ if __name__ == "__main__":
     if model is not None:
         encoding.display_model(model)
         sfa = encoding.get_sfa_from_model(model)
+        visualize_automaton(sfa, path="coucou")
         # Sanity check.
         for w, a in sample:
             assert sfa.accepts(w) == a
