@@ -147,6 +147,93 @@ def strip_values_from_sequences(sequences):
         stripped_sequence = [activity for activity, value in sequence]
         stripped_sequences.append((stripped_sequence, label))
     return stripped_sequences
+
+
+def frequency_analysis(sequences, sfa, threshold=0.2, path="./SAITesting/frequency_analysis", file_type="pdf", print_self_loops=False):
+    """
+    given a set of sequences and a SFA, print the SFA with states colored according to the frequency of the sequences that reach them,only keeping states that are reached by more than threshold% of the sequences.
+    """
+    if not sequences:
+        print("No sequences provided for frequency analysis.")
+        return None
+    frequency_dict = {state: 0 for state in sfa.states}
+    for sequence, _ in sequences:
+        if not sequence:
+            frequency_dict[sfa.initial_state] += 1
+            continue
+        sfa.current_state = sfa.initial_state
+        for letter in sequence:
+            try:
+                sfa.step(letter)
+            except KeyError:
+                break
+        
+            frequency_dict[sfa.current_state] = frequency_dict.get(sfa.current_state, 0) + 1
+    #NORMALIZE frequencies
+    total_sequences = len(sequences)
+    float_frequency_dict = {state: freq / total_sequences for state, freq in frequency_dict.items()}
+    #print the SFA
+    from aalpy.utils.FileHandler import _get_node, _wrap_label
+    from pydot import Dot, Node, Edge
+    from pathlib import Path
+    file_type = file_type.lower()
+    output_path = Path(path).with_suffix(f".{file_type}")
+    def color_for_ratio(ratio):
+        ratio = max(0.0, min(1.0, ratio))
+        # white -> red
+        r = 255
+        g = max(int(255 * (1.0 - (1.0 - threshold)*ratio)), 0)
+        b = max(int(255 * (1.0 - (1.0 - threshold)*ratio)), 0)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    active_states = [
+        state
+        for state in sfa.states
+        if (frequency_dict.get(state, 0) / total_sequences) >= threshold
+    ]
+    print(f"States reached by more than {threshold*100}% of sequences: {len(active_states)} out of {len(sfa.states)}")
+
+
+    graph = Dot("frequency_analysis", graph_type="digraph")
+
+    # start node
+    graph.add_node(Node("__start0", shape="none", label=""))
+    graph.add_edge(Edge("__start0", sfa.initial_state.state_id, label=""))
+
+    for state in active_states:
+        ratio = frequency_dict.get(state, 0) / total_sequences
+        node = _get_node(state, "sfa")
+        node.set("style", "filled")
+        node.set("fillcolor", color_for_ratio(ratio))
+        node.set("fontcolor", "black")
+        graph.add_node(node)
+
+    for state in active_states:
+        for pred, target in state.transitions:
+            if target not in active_states:
+                continue
+            if target == state and not print_self_loops:
+                continue
+            graph.add_edge(
+                Edge(
+                    state.state_id,
+                    target.state_id,
+                    label=_wrap_label(str(pred)),
+                )
+            )
+    
+    try:
+        graph.write(path=output_path, format=file_type if file_type != "dot" else "raw")
+        print(f"Model saved to {output_path.as_posix()}.")
+    except OSError:
+        import traceback
+        import sys
+        traceback.print_exc()
+        print(f"Could not write to the file {output_path.as_posix()}.", file=sys.stderr)
+
+    return output_path
+
+
 if __name__ == "__main__":
     from aalpy.learning_algs.deterministic_passive.SAI import SAI
     
@@ -160,34 +247,8 @@ if __name__ == "__main__":
     # quit()
     fh = FileHandler()
     # fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
-    learning_sample, test_sample, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv')
-    # print(f"got {len(learning_sample)} learning samples and {len(test_sample)} test samples")
-    # print(f"longest sequence {max(learning_sample, key=lambda x: len(x[0]))}")
-    # #Try RPNI
-    # # stripped_sample = strip_values_from_sequences(learning_sample)
-    # # from aalpy.learning_algs import run_RPNI
-    # # model = run_RPNI(stripped_sample, automaton_type='dfa', print_info=True)
-    # # model.visualize()
-    # # quit()
+    sequences, _, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv', learning_sample_size=1)
+    print(f"got {len(sequences)} sequences, with {len(activities)} unique activities: {activities}")
+    frequency_analysis(sequences, sfa, threshold=0.2, print_self_loops=False)
+    
 
-
-    # #split sample into learning and testing samples
-    # alg = LetterIntervalAlgebra(alphabet = activities)
-    # sai = SAI(learning_sample, alg,print_info=False)
-    # input("Press Enter to continue...")
-    # from alive_progress import alive_bar
-    # with keep.running():
-    #     with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
-    #         sfa = sai.run_SAI()
-    #         import pickle
-    #         with open('./SAITesting/sfa_BPI2017.pkl', 'wb') as f:
-    #             pickle.dump(sfa, f)
-    # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
-    sfa.make_input_complete()
-    error, ok = 0, 0
-    for word,label in test_sample:
-        if sfa.accepts(word) != label:
-            error += 1
-        else:
-            ok += 1
-    print(f"Test sample: {len(test_sample)} samples, {error} errors, {ok} correct, accuracy: {ok/len(test_sample)}")
