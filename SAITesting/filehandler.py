@@ -239,16 +239,25 @@ if __name__ == "__main__":
     
     from aalpy.utils import save_automaton_to_file, visualize_automaton
     from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, MonotonicAlgebra, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
-    import pickle
-    with open('./SAITesting/sfa_BPI2017.pkl', 'rb') as f:
-        sfa = pickle.load(f)
-    print(f"loaded sfa with {len(sfa.states)} states")
+    # import pickle
+    # with open('./SAITesting/sfa_BPI2017.pkl', 'rb') as f:
+    #     sfa = pickle.load(f)
+    # print(f"loaded sfa with {len(sfa.states)} states")
     # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
     # quit()
     fh = FileHandler()
-    # fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
+    fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
     sequences, _, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv', learning_sample_size=1)
-    print(f"got {len(sequences)} sequences, with {len(activities)} unique activities: {activities}")
+    alg = LetterIntervalAlgebra(alphabet = activities)
+    sai = SAI(sequences, alg,print_info=False)
+    input("Press Enter to continue...")
+    from alive_progress import alive_bar
+    with keep.presenting(on_fail="warn"):
+        with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
+            sfa = sai.run_SAI()
+            import pickle
+            with open('./SAITesting/big_sfa_BPI2017.pkl', 'wb') as f:
+                pickle.dump(sfa, f)
+    # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
+    sfa.make_input_complete()
     frequency_analysis(sequences, sfa, threshold=0.2, print_self_loops=False)
-    
-

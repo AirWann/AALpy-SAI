@@ -329,9 +329,9 @@ if __name__ == "__main__":
     with keep.running():
 
         smallparts = np.linspace(0.01, 0.1, 5, endpoint=False)
-        parts = np.linspace(0.1, 1, 5)
+        parts = np.linspace(0.1, 1, 8)
         allparts = np.concatenate((smallparts, parts))
-        testautomaton = generate_sfa(nb_states=8)
+        testautomaton = generate_sfa(nb_states=6)
         sample0 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=0)
         sample1 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=1)
         sample2 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=2)
@@ -342,11 +342,11 @@ if __name__ == "__main__":
             fixed_automaton=testautomaton,
             fixed_test_sample=fixed_test_sample,
             learning_parts=allparts,
-            nb_states=8,
+            nb_states=6,
             nb_runs=15,
             nb_samples=2000,
             stop_prob=0.15,
-            modes=[-1],
+            modes=[0,1,2],
             uncertainty="ci95",
             output_prefix=f"sai+rpni",
         )
