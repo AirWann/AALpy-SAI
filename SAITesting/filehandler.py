@@ -230,6 +230,21 @@ def frequency_analysis(sequences, sfa, threshold=0.2, path="./SAITesting/frequen
         import sys
         traceback.print_exc()
         print(f"Could not write to the file {output_path.as_posix()}.", file=sys.stderr)
+    sfa.make_input_complete()
+    correct,false,reallyfalse = 0,0,0
+    for sequence, label in sequences:
+        sfa.current_state = sfa.initial_state
+        for letter in sequence:
+            sfa.step(letter)
+        if sfa.current_state.state_id == "sink":
+            reallyfalse += 1
+        else:
+            if sfa.current_state.is_accepting == label:
+                correct += 1
+            else:
+                false += 1
+    accuracy = correct / (correct + false + reallyfalse) if (correct + false + reallyfalse) > 0 else 0
+    print(f"Accuracy of the SFA on the provided sequences: {accuracy} ({correct} correct, {false} incorrect, {reallyfalse} really incorrect)")
 
     return output_path
 
@@ -246,18 +261,20 @@ if __name__ == "__main__":
     # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
     # quit()
     fh = FileHandler()
-    fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
+    #fh.pipeline('./SAITesting/BPI Challenge 2017.xes.gz', './SAITesting/labeled_sequences_BPI2017.csv', activities_to_value={'A_Create Application': 'case:RequestedAmount', 'O_Create Offer': 'OfferedAmount'}, pos_activities={'A_Pending','O_Accepted'}, neg_activities={'A_Denied','A_Cancelled'})
     sequences, _, activities = fh.csv_to_SAI('./SAITesting/labeled_sequences_BPI2017.csv', learning_sample_size=1)
     alg = LetterIntervalAlgebra(alphabet = activities)
     sai = SAI(sequences, alg,print_info=False)
     input("Press Enter to continue...")
-    from alive_progress import alive_bar
-    with keep.presenting(on_fail="warn"):
-        with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
-            sfa = sai.run_SAI()
-            import pickle
-            with open('./SAITesting/big_sfa_BPI2017.pkl', 'wb') as f:
-                pickle.dump(sfa, f)
+    # from alive_progress import alive_bar
+    # with keep.presenting(on_fail="warn"):
+    #     with alive_bar(total = None, title='Running SAI', monitor=None, stats=None, unknown='fish'):
+    #         sfa = sai.run_SAI()
+    #         import pickle
+    #         with open('./SAITesting/big_sfa_BPI2017.pkl', 'wb') as f:
+    #             pickle.dump(sfa, f)
     # visualize_automaton(sfa, path='./SAITesting/sfa_BPI2017')
+    import pickle
+    sfa = pickle.load(open('./SAITesting/big_sfa_BPI2017.pkl', 'rb'))
     sfa.make_input_complete()
     frequency_analysis(sequences, sfa, threshold=0.2, print_self_loops=False)
