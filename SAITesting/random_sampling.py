@@ -16,8 +16,6 @@ from aalpy.learning_algs import run_RPNI
 from utilities import dfa_to_sfa,generate_random_sample, generate_sfa
 
 
-
-
 def test_random_sampling(
         fixed_automaton=None,
         fixed_test_sample=None,
@@ -45,10 +43,14 @@ def test_random_sampling(
             nb_states = len(testautomaton.states)
 
         start_time = time.time()
-        sample = generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=0).union(
-            generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=1),
-            generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=2),
-        )
+        if mode == -1:
+            # mode -1 means SMT solving, we will generate samples using all three modes and combine them
+            sample = generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=0).union(
+                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=1),
+                generate_random_sample(testautomaton, num_samples=nb_samples//3, stop_prob=stop_prob, mode=2),
+            )
+        else:
+            sample = generate_random_sample(testautomaton, num_samples=nb_samples, stop_prob=stop_prob, mode=mode)
         sampling_time = time.time() - start_time
         learning_sample = set(list(sample)[:int(len(sample)*learning_part)])
         #print(learning_sample)
@@ -58,8 +60,14 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            encoding = SMTIntervalEncoding(data=learning_sample, state_num=6,interval_num=6)
-            model = encoding.encode_and_solve()
+            encoding = SMTIntervalEncoding(data=learning_sample, state_num=nb_states,interval_num=nb_states+1)
+            if print_info:
+                print(f"Encoding SMT problem with {len(learning_sample)} samples and {nb_states} states...")
+            try:
+                model = encoding.encode_and_solve()
+            except Exception as e:
+                print(f"Error during SMT solving: {e}")
+                model = None
             if model is None:
                 print("UNSAT")
                 learned_sfa = None
@@ -81,10 +89,10 @@ def test_random_sampling(
         result_sizes[i] = len(learned_sfa.states)
         if print_info:
             print(f"Learned SFA has {len(learned_sfa.states)} states.")
-            print(f"Sampling time: {sampling_time}")
-            print(f"Learning time: {learning_time}")
-            visualize_automaton(testautomaton, path="./SAITesting/test_automaton_random_sample")
-            visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_random_sample")
+            print(f"Sampling time: {sampling_time:.2f}s")
+            print(f"Learning time: {learning_time:.2f}s")
+            #visualize_automaton(testautomaton, path="./SAITesting/test_automaton_random_sample")
+            #visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_random_sample")
         correct = 0
         for word, label in testing_sample:
             if learned_sfa.accepts(word) == bool(label):
@@ -124,7 +132,20 @@ def benchmark_random_sampling_vs_learning_part(
     accuracy_by_mode = np.zeros((len(modes), len(learning_parts)))
     error_by_mode = np.zeros((len(modes), len(learning_parts)))
     for mode in modes:
+        """
+        Mode 0: uniformly at random among the available transitions.
+        Mode 1: with a probability proportional to the size of the interval of the transition predicate.
+        Mode 2: according to a letter picked by a normal distribution such that there is an 80% chance it is between the lowest bound and highest bound of intervals of the outgoing transitions.
+        """
         print(f"\n\n--- Mode {mode} ---")
+        if mode == -1:
+            print("mode -1 means SMT solving (with samples generated using all three modes)")
+        if mode == 0:
+            print("mode 0 means uniform random sampling")
+        if mode == 1:
+            print("mode 1 means sampling with probability proportional to the size of the interval of the transition predicate")
+        if mode == 2:
+            print("mode 2 means sampling according to a letter picked by a normal distribution such that there is an 80% chance it is between the lowest bound and highest bound of intervals of the outgoing transitions")
         print(f"==Starting benchmark with nb_states={nb_states}, nb_runs={nb_runs}, nb_samples={nb_samples}, stop_prob={stop_prob}, mode={mode}==")
         mean_acc.clear()
         err_acc.clear()
@@ -134,7 +155,7 @@ def benchmark_random_sampling_vs_learning_part(
         all_parts.clear()
         all_result_sizes.clear()
         for lp in learning_parts:
-            print(f"Running benchmark for learning_part={lp:.2f}...")
+            print(f"Running benchmark for learning_part={lp:.2f}... (about {lp * nb_samples} samples)")
             acc, learn_times, learn_samples, result_sizes = test_random_sampling(
                 fixed_automaton=fixed_automaton,
                 fixed_test_sample=fixed_test_sample,
@@ -340,12 +361,12 @@ def plot_accuracy_versus_sample_and_result_size(
     print(f"Plot saved to: {output_path}")
 
 if __name__ == "__main__":
+    nb_states = 6
     with keep.running():
-
         smallparts = np.linspace(0.01, 0.1, 5, endpoint=False)
         parts = np.linspace(0.1, 1, 5)
         allparts = np.concatenate((smallparts, parts))
-        testautomaton = generate_sfa(nb_states=6, nb_trans=6)
+        testautomaton = generate_sfa(nb_states=nb_states, nb_trans=nb_states+1)
         sample0 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=0)
         sample1 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=1)
         sample2 = generate_random_sample(testautomaton, num_samples=2000, stop_prob=0.1, mode=2)
@@ -356,11 +377,12 @@ if __name__ == "__main__":
             fixed_automaton=testautomaton,
             fixed_test_sample=fixed_test_sample,
             learning_parts=allparts,
-            nb_states=6,
-            nb_runs=10,
+            nb_states=nb_states,
+            nb_runs=1,
             nb_samples=2000,
             stop_prob=0.15,
             modes=[-1,2],
             uncertainty="ci95",
             output_prefix=f"sai+smt",
+            print_info=True
         )
