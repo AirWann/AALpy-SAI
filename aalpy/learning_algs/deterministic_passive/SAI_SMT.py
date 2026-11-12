@@ -107,6 +107,49 @@ class APTA:
         return dot_output
 
 
+class AbstractData:
+    """
+    Converts a sample of labeled words of integers into an abstract
+    representation where each unique integer is mapped to a unique index
+    starting from 0.
+
+    This is useful for reducing the size of the intervals in the SMT encoding
+    based on the sample size instead of the maximum and minimum integer values
+    in the sample.
+    """
+
+    def __init__(self, data: Iterable[LabeledIntWord]):
+        assert data, "The sample must not be empty."
+
+        # Lists all unique integers in the sample.
+        unique_integers = {symbol for word, _ in data for symbol in word}
+        # Then maps them to a unique index starting from 0.
+        self.index_to_integer = sorted(unique_integers)
+        self.max_index = len(self.index_to_integer) - 1
+        self.integer_to_index = {
+            int_val: index
+            for index, int_val in enumerate(self.index_to_integer)
+        }
+        self.min_value = self.index_to_integer[0]
+        self.max_value = self.index_to_integer[-1]
+
+        # Convert the data to the abstract representation.
+        self.abstract_data = []
+        for word, label in data:
+            abstract_word = tuple(
+                self.integer_to_index[symbol] for symbol in word
+            )
+            self.abstract_data.append((abstract_word, label))
+
+    def abstract_to_real(self, int) -> int:
+        if int < 0:
+            return self.min_value - 1
+        elif int >= len(self.index_to_integer):
+            return self.max_value + 1
+        else:
+            return self.index_to_integer[int]
+
+
 class SMTIntervalEncoding:
     """
     Initializes the SMT encoding for learning a separating SFA from a sample of
@@ -128,16 +171,22 @@ class SMTIntervalEncoding:
 
         self.state_num = state_num
         self.interval_num = interval_num
+
+        # Create the abstract representation of the data.
+        self.abstract_data = AbstractData(data)
+
         # The maximum and minimum integers occurring in the sample bounds the
         # possible intervals.
-        self.max_value = (
-            max([symbol for word, _ in data for symbol in word]) + 1
+        self.max_value = self.abstract_data.max_index + 1
+        self.min_value = -1
+        print(
+            f"Max value: {self.max_value}, Min value: {self.min_value}, Sample size: {len(data)}"
         )
-        self.min_value = (
-            min([symbol for word, _ in data for symbol in word]) - 1
+        print(
+            f"Using {self.state_num} states and {self.interval_num} intervals per edge."
         )
         # Create the APTA from the data.
-        self.apta = APTA(data)
+        self.apta = APTA(self.abstract_data.abstract_data)
         # Initialize the SMT solver.
         self.solver = Solver()
         # Initialize the various variable lists.
@@ -300,9 +349,7 @@ class SMTIntervalEncoding:
         for i, j in product(range(self.state_num), range(self.state_num)):
             edge_str = f"{i} -> {j} :"
             for k in range(self.interval_num):
-                edge_str += (
-                    f" [{model[self.l[i][j][k]]}, {model[self.u[i][j][k]]}]"
-                )
+                edge_str += f" [{self.abstract_data.abstract_to_real(model[self.l[i][j][k]].as_long())}, {self.abstract_data.abstract_to_real(model[self.u[i][j][k]].as_long())}]"
             print(edge_str)
 
     def get_sfa_from_model(self, model) -> Sfa:
@@ -315,8 +362,16 @@ class SMTIntervalEncoding:
             # Builds all the outgoing transitions from state i.
             for j in range(self.state_num):
                 for k in range(self.interval_num):
-                    low = int(model[self.l[i][j][k]].as_long())
-                    up = int(model[self.u[i][j][k]].as_long())
+                    low = int(
+                        self.abstract_data.abstract_to_real(
+                            model[self.l[i][j][k]].as_long()
+                        )
+                    )
+                    up = int(
+                        self.abstract_data.abstract_to_real(
+                            model[self.u[i][j][k]].as_long()
+                        )
+                    )
                     # Only non-empty intervals are added to the SFA.
                     if low <= up:
                         transitions.append(
