@@ -60,27 +60,27 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            encoding = SMTIntervalEncoding(data=learning_sample, state_num=nb_states,interval_num=nb_states+1)
+            encoding = SMTIntervalEncoding(data=learning_sample, max_states=nb_states,interval_num=2)
             if print_info:
                 print(f"Encoding SMT problem with {len(learning_sample)} samples and {nb_states} states...")
             try:
-                model = encoding.encode_and_solve()
+                learned_sfa = encoding.iterative_solving()
             except Exception as e:
                 print(f"Error during SMT solving: {e}")
-                model = None
-            if model is None:
-                print("UNSAT")
                 learned_sfa = None
+            if learned_sfa is None:
+                print("No SFA found by th SMT algorithm.")
                 learning_time = time.time() - start_time - sampling_time
                 accuracies[i] = 0
                 learn_times[i] = learning_time
                 learn_samples[i] = len(learning_sample)
                 continue
-            else:
-                learned_sfa = encoding.get_sfa_from_model(model)
-            #print the very last sfa
+            # print the very last sfa
             if i == nb_runs - 1:
-                visualize_automaton(learned_sfa, path="./SAITesting/learned_automaton_random_sample_SMT")
+                visualize_automaton(
+                    learned_sfa,
+                    path="./SAITesting/learned_automaton_random_sample_SMT",
+                )
         else:
             learned_sfa = SAI(learning_sample).run_SAI()
         if not learned_sfa.is_input_complete():
