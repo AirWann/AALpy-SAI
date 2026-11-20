@@ -6,10 +6,13 @@ from pysat.solvers import Solver
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
-from aalpy.learning_algs.deterministic_passive.SAI_SMT import APTA, AbstractData
+from aalpy.learning_algs.deterministic_passive.SAI_SMT_utils import (
+    APTA,
+    AbstractData,
+)
 
 
-class SATIntervalEncoding:
+class SfaSatLearner:
     """
     Initializes the SAT encoding for learning a separating SFA from a sample of
     labeled words. The number of states and intervals per edge of said SFA is
@@ -185,6 +188,9 @@ class SATIntervalEncoding:
         Builds and solves the CNF for the current number of states.
         """
 
+        print(
+            f"* Encoding and solving the SAT problem for {self.n} state(s)..."
+        )
         self.encode()
         return self.solve()
 
@@ -198,6 +204,7 @@ class SATIntervalEncoding:
             if model is not None:
                 return self.get_sfa_from_model(model)
             self.n += 1
+
         raise ValueError(
             f"No separating SFA found with at most {self.max_states} states "
             f"and {self.interval_num} intervals per edge."

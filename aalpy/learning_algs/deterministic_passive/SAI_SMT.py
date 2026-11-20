@@ -1,168 +1,28 @@
 from itertools import product
-from collections import deque
-from dataclasses import dataclass, field
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
-import numpy as np
+
+from cvc5.pythonic import And, Bool, Implies, Int, Not, Or, Solver, sat
 
 from aalpy.automata.Sfa import Sfa
 from aalpy.base.BooleanAlgebra import IntervalAlgebra, IntervalPredicate
-from aalpy.utils.FileHandler import visualize_automaton
-
-from cvc5.pythonic import Int, Bool, Solver, Or, Implies, Not, And, sat
-
-
-IntWord = Tuple[int, ...]
-LabeledIntWord = Tuple[Sequence[int], bool]
+from aalpy.learning_algs.deterministic_passive.SAI_SMT_utils import (
+    APTA,
+    AbstractData,
+)
 
 
-@dataclass
-class APTANode:
-    prefix: IntWord
-    children: Dict[int, int] = field(default_factory=dict)
-    label: Optional[bool] = None
-
-
-class APTA:
-    def __init__(self, data: Iterable[LabeledIntWord]):
-        self.node_list = [APTANode(prefix=())]
-        for word, acceptance in data:
-            self.insert(word, acceptance)
-
-    def size(self) -> int:
-        return len(self.node_list)
-
-    def insert(self, word: Sequence[int], acceptance: bool) -> int:
-        # Handling numpy Boolean values.
-        if acceptance == np.True_:
-            acceptance_bool = True
-        elif acceptance == np.False_:
-            acceptance_bool = False
-        else:
-            acceptance_bool = bool(acceptance)
-
-        current_node = 0
-        for symbol in word:
-            if symbol not in self.node_list[current_node].children:
-                # Create a new node for the prefix extended by the symbol.
-                self.node_list.append(
-                    APTANode(
-                        prefix=self.node_list[current_node].prefix + (symbol,)
-                    )
-                )
-                # Link the current node to the new node via the symbol.
-                self.node_list[current_node].children[symbol] = (
-                    len(self.node_list) - 1
-                )
-            current_node = self.node_list[current_node].children[symbol]
-        # Does the node already have a label? If so, it must be consistent with
-        # the new label.
-        if (
-            self.node_list[current_node].label is not None
-            and self.node_list[current_node].label != acceptance_bool
-        ):
-            raise ValueError(
-                f"Inconsistent sample: word {word} is labeled both True and False."
-            )
-        self.node_list[current_node].label = acceptance_bool
-        return current_node
-
-    def display(self, output_file: Optional[str] = None) -> str:
-        """Return the APTA as DOT and optionally save it to a Graphviz file."""
-        lines = [
-            "digraph APTA {",
-            "  rankdir=LR;",
-            '  __start0 [shape=none,label=""];',
-            "  __start0 -> q0;",
-        ]
-
-        # Draw the states.
-        for index, node in enumerate(self.node_list):
-            if node.label is True:
-                shape = "doublecircle"
-                style = "solid"
-            elif node.label is False:
-                shape = "circle"
-                style = "solid"
-            else:
-                shape = "circle"
-                style = "dotted"
-
-            lines.append(
-                f'  q{index} [shape={shape},style={style},label="{index}"];'
-            )
-        # Draw the edges.
-        for index, node in enumerate(self.node_list):
-            for symbol, child in sorted(
-                node.children.items(), key=lambda t: t[0]
-            ):
-                lines.append(f'  q{index} -> q{child} [label="{symbol}"];')
-
-        lines.append("}")
-        dot_output = "\n".join(lines)
-
-        if output_file is not None:
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(dot_output)
-
-        return dot_output
-
-
-class AbstractData:
+class SfaSmtLearner:
     """
-    Converts a sample of labeled words of integers into an abstract
-    representation where each unique integer is mapped to a unique index
-    starting from 0.
+    Using a SMT solver, learns a separating SFA from a sample of labeled words.
+    The number of states and intervals per edge of said SFA is bounded.
 
-    This is useful for reducing the size of the intervals in the SMT encoding
-    based on the sample size instead of the maximum and minimum integer values
-    in the sample.
-    """
-
-    def __init__(self, data: Iterable[LabeledIntWord]):
-        assert data, "The sample must not be empty."
-
-        # Lists all unique integers in the sample.
-        unique_integers = {symbol for word, _ in data for symbol in word}
-        # Then maps them to a unique index starting from 0.
-        self.index_to_integer = sorted(unique_integers)
-        self.max_index = len(self.index_to_integer) - 1
-        self.integer_to_index = {
-            int_val: index
-            for index, int_val in enumerate(self.index_to_integer)
-        }
-        self.min_value = self.index_to_integer[0]
-        self.max_value = self.index_to_integer[-1]
-
-        # Convert the data to the abstract representation.
-        self.abstract_data = []
-        for word, label in data:
-            abstract_word = tuple(
-                self.integer_to_index[symbol] for symbol in word
-            )
-            self.abstract_data.append((abstract_word, label))
-
-    def abstract_to_real(self, int) -> int:
-        if int < 0:
-            return self.min_value - 1
-        elif int >= len(self.index_to_integer):
-            return self.max_value + 1
-        else:
-            return self.index_to_integer[int]
-
-
-class SMTIntervalEncoding:
-    """
-    Initializes the SMT encoding for learning a separating SFA from a sample of
-    labeled words. The number of states and intervals per edge of said SFA is
-    bounded.
+    This algorithm is outdated and has been replaced by the SAT-based algorithm
+    in SAI_SAT.py.
 
     Args:
         - data: the labeled words to learn from
         - max_states: maximum number of states in the separating SFA
         - interval_num: maximum number of intervals per transition in the
           separating SFA
-        - canonical_intervals: eliminate equivalent representations of the
-          same interval union. This can change the model chosen by the solver.
     """
 
     def __init__(self, data, max_states, interval_num):
@@ -170,28 +30,22 @@ class SMTIntervalEncoding:
         assert interval_num > 1, (
             "The number of intervals per edge must be greater than 1."
         )
-        self.state_num = 1
+
+        # The alphabet and sample are abstracted to integers for the encoding.
+        self.abstract_data = AbstractData(data)
+        self.apta = APTA(self.abstract_data.abstract_data)
+        self.alphabet_size = len(self.abstract_data.index_to_integer)
+
         self.max_states = max_states
         self.interval_num = interval_num
 
-        # Create the abstract representation of the data.
-        self.abstract_data = AbstractData(data)
-
         # The maximum and minimum integers occurring in the sample bounds the
         # possible intervals.
-        self.max_value = self.abstract_data.max_index + 1
+        self.max_value = self.alphabet_size + 1
         self.min_value = -1
-        print(
-            f"* Max value: {self.max_value}, Min value: {self.min_value}, Sample size: {len(data)}"
-        )
-        print(
-            f"* Using {self.max_states} states at most and {self.interval_num} intervals per edge."
-        )
-        # Create the APTA from the data.
-        self.apta = APTA(self.abstract_data.abstract_data)
-        # Initialize the SMT solver.
+
+        self.n = 1
         self.solver = Solver()
-        # Initialize the various variable lists.
         self.l = []
         self.u = []
         self.f = []
@@ -206,25 +60,26 @@ class SMTIntervalEncoding:
         Note that the encoding is lazy: it may be that the lower bound is
         bigger than the upper bound; the interval is then meant to be empty.
         """
+
         self.l = [
             [
                 [Int(f"l_{i},{j},{k}") for k in range(self.interval_num)]
-                for j in range(self.state_num)
+                for j in range(self.n)
             ]
-            for i in range(self.state_num)
+            for i in range(self.n)
         ]
         self.u = [
             [
                 [Int(f"u_{i},{j},{k}") for k in range(self.interval_num)]
-                for j in range(self.state_num)
+                for j in range(self.n)
             ]
-            for i in range(self.state_num)
+            for i in range(self.n)
         ]
 
         constraints = []
         for i, j, k in product(
-            range(self.state_num),
-            range(self.state_num),
+            range(self.n),
+            range(self.n),
             range(self.interval_num),
         ):
             lower = self.l[i][j][k]
@@ -251,6 +106,7 @@ class SMTIntervalEncoding:
                         And(prev_lower <= prev_upper, prev_upper < lower),
                     )
                 )
+
         if constraints:
             self.solver.add(*constraints)
 
@@ -260,36 +116,41 @@ class SMTIntervalEncoding:
         x[node] = i if the word labelling node reaches state i of the
         separating SFA.
         """
+
         self.x = [Int(f"x_{node}") for node in range(self.apta.size())]
         # Projects an APTA node unto a state of the separating SFA.
         # Node 0 is the initial state.
         constraints = [self.x[0] == 0]
         for node in range(1, self.apta.size()):
             constraints.append(0 <= self.x[node])
-            constraints.append(self.x[node] < self.state_num)
-        self.solver.add(*constraints)
+            constraints.append(self.x[node] < self.n)
+
+        if constraints:
+            self.solver.add(*constraints)
 
     def acceptance_variables(self):
         """
         Defines the acceptance variables.
         f[i] is true if state i of the separating SFA is accepting.
         """
-        self.f = [Bool(f"f_{i}") for i in range(self.state_num)]
+
+        self.f = [Bool(f"f_{i}") for i in range(self.n)]
 
     def determinism_constraints(self):
         """
         These constraints guarantee that the separating SFA is deterministic,
         i.e. that intervals on different edges cannot intersect.
         """
+
         constraints = []
         for i, j1, k1, k2 in product(
-            range(self.state_num),
-            range(self.state_num),
+            range(self.n),
+            range(self.n),
             range(self.interval_num),
             range(self.interval_num),
         ):
             # Note that the clauses are symmetric w.r.t. j1 and j2.
-            for j2 in range(j1 + 1, self.state_num):
+            for j2 in range(j1 + 1, self.n):
                 # One of the following must hold:
                 # 1. The first interval is empty.
                 # 2. The second interval is empty.
@@ -303,6 +164,7 @@ class SMTIntervalEncoding:
                         self.u[i][j1][k1] < self.l[i][j2][k2],
                     )
                 )
+
         if constraints:
             self.solver.add(*constraints)
 
@@ -312,15 +174,17 @@ class SMTIntervalEncoding:
         the sample, i.e. that it accepts all positive words and rejects all
         negative words in the sample.
         """
+
         constraints = []
         for node in range(self.apta.size()):
-            for i in range(self.state_num):
+            for i in range(self.n):
                 if self.apta.node_list[node].label is True:
                     constraints.append(Implies(self.x[node] == i, self.f[i]))
                 elif self.apta.node_list[node].label is False:
                     constraints.append(
                         Implies(self.x[node] == i, Not(self.f[i]))
                     )
+
         if constraints:
             self.solver.add(*constraints)
 
@@ -330,14 +194,12 @@ class SMTIntervalEncoding:
         of the separating SFA. i.e. that if an APTA node reaches state i and
         has a child by letter symbol that reaches state j, then symbol must be
         in the union of the intervals labelling the edge from i to j.
-
-        Optimization: Only generate constraints for transitions that actually
-        exist in the APTA to avoid unnecessary solver variables.
         """
+
         for node, i, j in product(
             range(self.apta.size()),
-            range(self.state_num),
-            range(self.state_num),
+            range(self.n),
+            range(self.n),
         ):
             constraints = []
             for symbol, child in self.apta.node_list[node].children.items():
@@ -362,8 +224,9 @@ class SMTIntervalEncoding:
         """
         Adds all the constraints to the solver and checks for satisfiability.
         """
+
         print(
-            f"* Encoding and solving the SMT problem for {self.state_num} state(s)..."
+            f"* Encoding and solving the SMT problem for {self.n} state(s)..."
         )
 
         self.interval_variables()
@@ -374,10 +237,8 @@ class SMTIntervalEncoding:
         self.edge_compatibility_constraints()
 
         if self.solver.check() == sat:
-            print("** SAT instance.")
             model = self.solver.model()
             return model
-        print("** UNSAT instance.")
         return None
 
     def iterative_solving(self):
@@ -385,14 +246,14 @@ class SMTIntervalEncoding:
         Iteratively increases the number of states in the separating SFA until a
         solution is found or the maximum number of states is reached.
         """
-        while self.state_num <= self.max_states:
+        while self.n <= self.max_states:
             model = self.encode_and_solve()
             # A model is found, return the corresponding SFA.
             if model is not None:
                 sfa = self.get_sfa_from_model(model)
                 return sfa
 
-            self.state_num += 1
+            self.n += 1
             # Resets
             self.solver = Solver()
             self.l = []
@@ -405,14 +266,12 @@ class SMTIntervalEncoding:
         )
 
     def display_model(self, model):
+        print(f"{self.n} states, {self.interval_num} intervals per edge")
         print(
-            f"{self.state_num} states, {self.interval_num} intervals per edge"
-        )
-        print(
-            f"Accepting states: {[i for i in range(self.state_num) if model[self.f[i]]]}"
+            f"Accepting states: {[i for i in range(self.n) if model[self.f[i]]]}"
         )
         print("Edges:")
-        for i, j in product(range(self.state_num), range(self.state_num)):
+        for i, j in product(range(self.n), range(self.n)):
             edge_str = f"{i} -> {j} :"
             for k in range(self.interval_num):
                 edge_str += f" [{self.abstract_data.abstract_to_real(model[self.l[i][j][k]].as_long())}, {self.abstract_data.abstract_to_real(model[self.u[i][j][k]].as_long())}]"
@@ -423,10 +282,10 @@ class SMTIntervalEncoding:
         Returns the (incomplete) separating SFA corresponding to the given model.
         """
         state_dict = {}
-        for i in range(self.state_num):
+        for i in range(self.n):
             transitions = []
             # Builds all the outgoing transitions from state i.
-            for j in range(self.state_num):
+            for j in range(self.n):
                 for k in range(self.interval_num):
                     low = int(
                         self.abstract_data.abstract_to_real(
@@ -447,34 +306,3 @@ class SMTIntervalEncoding:
             state_dict[f"s{i}"] = (bool(model[self.f[i]]), transitions)
 
         return Sfa.from_state_setup(state_dict, algebra=IntervalAlgebra())
-
-
-if __name__ == "__main__":
-    # sample = {
-    #     ((), False),
-    #     ((0,), False),
-    #     (
-    #         (
-    #             0,
-    #             0,
-    #         ),
-    #         False,
-    #     ),
-    # }
-    # sample = {((), False), ((0,), False)}
-    # sample = {((), False), ((0,), True)}
-    sample = {
-        ((), False),
-        ((0,), True),
-        (
-            (
-                0,
-                0,
-            ),
-            False,
-        ),
-    }
-    encoding = SMTIntervalEncoding(sample, max_states=3, interval_num=2)
-    encoding.apta.display("test_apta.dot")
-    sfa = encoding.iterative_solving()
-    visualize_automaton(sfa, path="test_sfa")

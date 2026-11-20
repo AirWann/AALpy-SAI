@@ -7,7 +7,7 @@ from aalpy.base.BooleanAlgebra import IntervalPredicate, LetterIntervalAlgebra, 
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
 
-from aalpy.learning_algs.deterministic_passive.SAI_SMT import SMTIntervalEncoding
+from aalpy.learning_algs.deterministic_passive.SAI_SMT import SfaSmtLearner
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from wakepy import keep
 from pickle import dump, load
@@ -412,7 +412,7 @@ if __name__ == "__main__":
                 sample = sfa.characteristic_sample()
                 try:
                     #learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
-                    encoding = SMTIntervalEncoding(data=sample, max_states=nb_states+1,interval_num=nb_states+1)
+                    encoding = SfaSmtLearner(data=sample, max_states=nb_states+1,interval_num=nb_states+1)
                     print(f"Encoding SMT problem with {len(sample)} samples...")
 
                     start = time.time()

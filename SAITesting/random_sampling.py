@@ -2,7 +2,7 @@ from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
-from aalpy.learning_algs.deterministic_passive.SAI_SAT import SATIntervalEncoding
+from aalpy.learning_algs.deterministic_passive.SAI_SAT import SfaSatLearner
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from aalpy.automata import Dfa, DfaState
 from aalpy.learning_algs import run_RPNI
@@ -60,7 +60,7 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            encoding = SATIntervalEncoding(data=learning_sample, max_states=nb_states,interval_num=2)
+            encoding = SfaSatLearner(data=learning_sample, max_states=nb_states,interval_num=nb_states+1)
             if print_info:
                 print(f"Encoding SAT problem with {len(learning_sample)} samples and {nb_states} states...")
             try:
