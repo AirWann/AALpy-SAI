@@ -161,6 +161,8 @@ class SMTIntervalEncoding:
         - state_num: number of states in the separating SFA
         - interval_num: maximum number of intervals per transition in the
           separating SFA
+        - canonical_intervals: eliminate equivalent representations of the
+          same interval union. This can change the model chosen by the solver.
     """
 
     def __init__(self, data, state_num, interval_num):
@@ -218,17 +220,37 @@ class SMTIntervalEncoding:
             ]
             for i in range(self.state_num)
         ]
-        # Domain constraints to set up the interval bounds.
+
         constraints = []
         for i, j, k in product(
             range(self.state_num),
             range(self.state_num),
             range(self.interval_num),
         ):
-            constraints.append(self.l[i][j][k] >= self.min_value)
-            constraints.append(self.l[i][j][k] <= self.max_value)
-            constraints.append(self.u[i][j][k] >= self.min_value)
-            constraints.append(self.u[i][j][k] <= self.max_value)
+            lower = self.l[i][j][k]
+            upper = self.u[i][j][k]
+            # Domain constraints to set up the interval bounds.
+            constraints.append(lower >= self.min_value)
+            constraints.append(lower <= self.max_value)
+            constraints.append(upper >= self.min_value)
+            constraints.append(upper <= self.max_value)
+            # Enforces a canonical representation of the empty intervals.
+            constraints.append(
+                Implies(
+                    lower > upper,
+                    And(lower == self.max_value, upper == self.min_value),
+                )
+            )
+            # Guarantees that the intervals are ordered and non-overlapping.
+            if k:
+                prev_lower = self.l[i][j][k - 1]
+                prev_upper = self.u[i][j][k - 1]
+                constraints.append(
+                    Or(
+                        lower > upper,
+                        And(prev_lower <= prev_upper, prev_upper < lower),
+                    )
+                )
         if constraints:
             self.solver.add(*constraints)
 
