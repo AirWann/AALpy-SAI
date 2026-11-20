@@ -412,7 +412,7 @@ if __name__ == "__main__":
                 sample = sfa.characteristic_sample()
                 try:
                     #learned_sfa = SAI(sample, algebra=alg, print_info=False).run_SAI()
-                    encoding = SMTIntervalEncoding(data=sample, state_num=nb_states+1,interval_num=nb_states+1)
+                    encoding = SMTIntervalEncoding(data=sample, max_states=nb_states+1,interval_num=nb_states+1)
                     print(f"Encoding SMT problem with {len(sample)} samples...")
 
                     start = time.time()
