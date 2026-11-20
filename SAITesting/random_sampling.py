@@ -2,7 +2,7 @@ from aalpy.automata.Sfa import Sfa, SfaState
 from aalpy.base.BooleanAlgebra import IntervalPredicate, Predicate, BooleanAlgebra, IntervalAlgebra, OrPredicate
 import numpy as np
 from aalpy.learning_algs.deterministic_passive.SAI import SAI
-from aalpy.learning_algs.deterministic_passive.SAI_SMT import SMTIntervalEncoding
+from aalpy.learning_algs.deterministic_passive.SAI_SAT import SATIntervalEncoding
 from aalpy.utils import save_automaton_to_file, visualize_automaton
 from aalpy.automata import Dfa, DfaState
 from aalpy.learning_algs import run_RPNI
@@ -60,16 +60,16 @@ def test_random_sampling(
             testing_sample = sample - learning_sample
         
         if mode == -1:
-            encoding = SMTIntervalEncoding(data=learning_sample, max_states=nb_states,interval_num=2)
+            encoding = SATIntervalEncoding(data=learning_sample, max_states=nb_states,interval_num=2)
             if print_info:
-                print(f"Encoding SMT problem with {len(learning_sample)} samples and {nb_states} states...")
+                print(f"Encoding SAT problem with {len(learning_sample)} samples and {nb_states} states...")
             try:
                 learned_sfa = encoding.iterative_solving()
             except Exception as e:
-                print(f"Error during SMT solving: {e}")
+                print(f"Error during SAT solving: {e}")
                 learned_sfa = None
             if learned_sfa is None:
-                print("No SFA found by th SMT algorithm.")
+                print("No SFA found by th SAT algorithm.")
                 learning_time = time.time() - start_time - sampling_time
                 accuracies[i] = 0
                 learn_times[i] = learning_time
@@ -79,7 +79,7 @@ def test_random_sampling(
             if i == nb_runs - 1:
                 visualize_automaton(
                     learned_sfa,
-                    path="./SAITesting/learned_automaton_random_sample_SMT",
+                    path="./SAITesting/learned_automaton_random_sample_SAT",
                 )
         else:
             learned_sfa = SAI(learning_sample).run_SAI()

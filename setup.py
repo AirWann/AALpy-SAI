@@ -26,6 +26,7 @@ setup(
         "Operating System :: OS Independent"
     ],
     install_requires=['pydot'],
+    extras_require={'sai_sat': ['python-sat', 'cvc5', 'numpy']},
     python_requires=">=3.6",
 )
 
