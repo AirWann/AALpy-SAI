@@ -158,20 +158,20 @@ class SMTIntervalEncoding:
 
     Args:
         - data: the labeled words to learn from
-        - state_num: number of states in the separating SFA
+        - max_states: maximum number of states in the separating SFA
         - interval_num: maximum number of intervals per transition in the
           separating SFA
         - canonical_intervals: eliminate equivalent representations of the
           same interval union. This can change the model chosen by the solver.
     """
 
-    def __init__(self, data, state_num, interval_num):
-        assert state_num > 0, "The number of states must be positive."
+    def __init__(self, data, max_states, interval_num):
+        assert max_states > 0, "The number of states must be positive."
         assert interval_num > 1, (
             "The number of intervals per edge must be greater than 1."
         )
-
-        self.state_num = state_num
+        self.state_num = 1
+        self.max_states = max_states
         self.interval_num = interval_num
 
         # Create the abstract representation of the data.
@@ -182,10 +182,10 @@ class SMTIntervalEncoding:
         self.max_value = self.abstract_data.max_index + 1
         self.min_value = -1
         print(
-            f"Max value: {self.max_value}, Min value: {self.min_value}, Sample size: {len(data)}"
+            f"* Max value: {self.max_value}, Min value: {self.min_value}, Sample size: {len(data)}"
         )
         print(
-            f"Using {self.state_num} states and {self.interval_num} intervals per edge."
+            f"* Using {self.max_states} states at most and {self.interval_num} intervals per edge."
         )
         # Create the APTA from the data.
         self.apta = APTA(self.abstract_data.abstract_data)
@@ -242,7 +242,7 @@ class SMTIntervalEncoding:
                 )
             )
             # Guarantees that the intervals are ordered and non-overlapping.
-            if k:
+            if k > 0:
                 prev_lower = self.l[i][j][k - 1]
                 prev_upper = self.u[i][j][k - 1]
                 constraints.append(
@@ -362,6 +362,10 @@ class SMTIntervalEncoding:
         """
         Adds all the constraints to the solver and checks for satisfiability.
         """
+        print(
+            f"* Encoding and solving the SMT problem for {self.state_num} state(s)..."
+        )
+
         self.interval_variables()
         self.apta_variables()
         self.acceptance_variables()
@@ -370,10 +374,35 @@ class SMTIntervalEncoding:
         self.edge_compatibility_constraints()
 
         if self.solver.check() == sat:
+            print("** SAT instance.")
             model = self.solver.model()
             return model
-        print("UNSAT")
+        print("** UNSAT instance.")
         return None
+
+    def iterative_solving(self):
+        """
+        Iteratively increases the number of states in the separating SFA until a
+        solution is found or the maximum number of states is reached.
+        """
+        while self.state_num <= self.max_states:
+            model = self.encode_and_solve()
+            # A model is found, return the corresponding SFA.
+            if model is not None:
+                sfa = self.get_sfa_from_model(model)
+                return sfa
+
+            self.state_num += 1
+            # Resets
+            self.solver = Solver()
+            self.l = []
+            self.u = []
+            self.f = []
+            self.x = []
+
+        raise ValueError(
+            f"No separating SFA found with at most {self.max_states} states and {self.interval_num} intervals per edge."
+        )
 
     def display_model(self, model):
         print(
@@ -445,13 +474,7 @@ if __name__ == "__main__":
             False,
         ),
     }
-    encoding = SMTIntervalEncoding(sample, state_num=3, interval_num=2)
+    encoding = SMTIntervalEncoding(sample, max_states=3, interval_num=2)
     encoding.apta.display("test_apta.dot")
-    model = encoding.encode_and_solve()
-    if model is not None:
-        encoding.display_model(model)
-        sfa = encoding.get_sfa_from_model(model)
-        visualize_automaton(sfa, path="coucou")
-        # Sanity check.
-        for w, a in sample:
-            assert sfa.accepts(w) == a
+    sfa = encoding.iterative_solving()
+    visualize_automaton(sfa, path="test_sfa")
