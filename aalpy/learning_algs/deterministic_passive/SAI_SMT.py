@@ -219,19 +219,18 @@ class SMTIntervalEncoding:
             for i in range(self.state_num)
         ]
         # Domain constraints to set up the interval bounds.
+        constraints = []
         for i, j, k in product(
             range(self.state_num),
             range(self.state_num),
             range(self.interval_num),
         ):
-            self.solver.add(
-                self.l[i][j][k] >= self.min_value,
-                self.l[i][j][k] <= self.max_value,
-            )
-            self.solver.add(
-                self.u[i][j][k] >= self.min_value,
-                self.u[i][j][k] <= self.max_value,
-            )
+            constraints.append(self.l[i][j][k] >= self.min_value)
+            constraints.append(self.l[i][j][k] <= self.max_value)
+            constraints.append(self.u[i][j][k] >= self.min_value)
+            constraints.append(self.u[i][j][k] <= self.max_value)
+        if constraints:
+            self.solver.add(*constraints)
 
     def apta_variables(self):
         """
@@ -242,9 +241,11 @@ class SMTIntervalEncoding:
         self.x = [Int(f"x_{node}") for node in range(self.apta.size())]
         # Projects an APTA node unto a state of the separating SFA.
         # Node 0 is the initial state.
-        self.solver.add(self.x[0] == 0)
+        constraints = [self.x[0] == 0]
         for node in range(1, self.apta.size()):
-            self.solver.add(0 <= self.x[node], self.x[node] < self.state_num)
+            constraints.append(0 <= self.x[node])
+            constraints.append(self.x[node] < self.state_num)
+        self.solver.add(*constraints)
 
     def acceptance_variables(self):
         """
@@ -258,6 +259,7 @@ class SMTIntervalEncoding:
         These constraints guarantee that the separating SFA is deterministic,
         i.e. that intervals on different edges cannot intersect.
         """
+        constraints = []
         for i, j1, k1, k2 in product(
             range(self.state_num),
             range(self.state_num),
@@ -271,7 +273,7 @@ class SMTIntervalEncoding:
                 # 2. The second interval is empty.
                 # 3. The first interval is to the right of the second.
                 # 4. The first interval is to the left of the second.
-                self.solver.add(
+                constraints.append(
                     Or(
                         self.l[i][j1][k1] > self.u[i][j1][k1],
                         self.l[i][j2][k2] > self.u[i][j2][k2],
@@ -279,6 +281,8 @@ class SMTIntervalEncoding:
                         self.u[i][j1][k1] < self.l[i][j2][k2],
                     )
                 )
+        if constraints:
+            self.solver.add(*constraints)
 
     def state_compatibility_constraints(self):
         """
@@ -286,12 +290,17 @@ class SMTIntervalEncoding:
         the sample, i.e. that it accepts all positive words and rejects all
         negative words in the sample.
         """
+        constraints = []
         for node in range(self.apta.size()):
             for i in range(self.state_num):
                 if self.apta.node_list[node].label is True:
-                    self.solver.add(Implies(self.x[node] == i, self.f[i]))
+                    constraints.append(Implies(self.x[node] == i, self.f[i]))
                 elif self.apta.node_list[node].label is False:
-                    self.solver.add(Implies(self.x[node] == i, Not(self.f[i])))
+                    constraints.append(
+                        Implies(self.x[node] == i, Not(self.f[i]))
+                    )
+        if constraints:
+            self.solver.add(*constraints)
 
     def edge_compatibility_constraints(self):
         """
@@ -299,14 +308,18 @@ class SMTIntervalEncoding:
         of the separating SFA. i.e. that if an APTA node reaches state i and
         has a child by letter symbol that reaches state j, then symbol must be
         in the union of the intervals labelling the edge from i to j.
+
+        Optimization: Only generate constraints for transitions that actually
+        exist in the APTA to avoid unnecessary solver variables.
         """
         for node, i, j in product(
             range(self.apta.size()),
             range(self.state_num),
             range(self.state_num),
         ):
+            constraints = []
             for symbol, child in self.apta.node_list[node].children.items():
-                self.solver.add(
+                constraints.append(
                     Implies(
                         And(self.x[node] == i, self.x[child] == j),
                         Or(
@@ -320,6 +333,8 @@ class SMTIntervalEncoding:
                         ),
                     )
                 )
+            if constraints:
+                self.solver.add(*constraints)
 
     def encode_and_solve(self):
         """
@@ -377,8 +392,6 @@ class SMTIntervalEncoding:
                         transitions.append(
                             (IntervalPredicate(low, up + 1), f"s{j}")
                         )
-
-                    pass
 
             state_dict[f"s{i}"] = (bool(model[self.f[i]]), transitions)
 
